@@ -1,0 +1,2 @@
+# sinusbot-scripts
+Sinusbot Scripts
