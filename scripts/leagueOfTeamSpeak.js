@@ -46,8 +46,6 @@ registerPlugin({
     const _msgSummonerIconBad = "ICONBAD";
     const _msgSummonerNameBad = "NAMEBAD";
 
-    const { apiKey } = config;
-
     const _verifyTime = 60;
 
     const regions = {
