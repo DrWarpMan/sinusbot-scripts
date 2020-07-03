@@ -5,7 +5,7 @@ registerPlugin({
     author: "DrWarpMan <drwarpman@gmail.com>",
     backends: ["ts3"],
     engine: ">= 1.0",
-    autorun: true,
+    autorun: false,
     enableWeb: false,
     hidden: false,
     requiredModules: ["http"],
@@ -96,7 +96,7 @@ registerPlugin({
                     const httpParams = {
                         method: "GET",
                         timeout: 5 * 1000,
-                        url: regionAPI(region) + `/lol/summoner/v4/summoners/by-name/${encodeURI(summonerName)}?api_key=${_apiKey}`
+                        url: regionAPI(region) + `/lol/summoner/v4/summoners/by-name/${encodeURI(summonerName)}?api_key=${apiKey}`
                     };
 
                     try {
@@ -286,7 +286,7 @@ registerPlugin({
         const httpParams = {
             method: "GET",
             timeout: 5 * 1000,
-            url: regionAPI(region) + `/lol/summoner/v4/summoners/by-puuid/${encodeURI(account.puuid)}?api_key=${_apiKey}`
+            url: regionAPI(region) + `/lol/summoner/v4/summoners/by-puuid/${encodeURI(account.puuid)}?api_key=${apiKey}`
         };
 
         try {
