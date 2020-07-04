@@ -19,13 +19,13 @@ registerPlugin({
     }]
 }, (_, config, { name, version, author }) => {
 
-    const { apiKey } = config;
-
     const backend = require("backend");
     const engine = require("engine");
     const http = require("http");
     const event = require("event");
     const store = require("store");
+
+    const { apiKey } = config;
 
     store.getKeys().forEach(i => store.unset(i));
 
@@ -107,23 +107,24 @@ registerPlugin({
                         if (response.statusCode == 404) return client.chat(_msgSummonerNotFound);
                         if (response.statusCode != 200) throw new Error(`HTTP Error (${httpParams.url}) - Status [${response.statusCode}]: ${response.status}`);
 
-                        client.chat("Account found: " + JSON.stringify(JSON.parse(response.data))); // DO NOT FORGET
+                        client.chat("Account found: " + JSON.stringify(JSON.parse(response.data)));
 
                         const account = JSON.parse(response.data);
 
-                        // If client already has ANY account added
                         if (accountAlreadyAdded(client)) return client.chat(_msgSummonerAlreadyAdded);
-                        // if account has someone else
                         if (accountAlreadyOwned(account, region)) return client.chat(_msgSummonerAlreadyOwned);
 
                         setAccount(client, account, region);
 
                         const { expiryDate, verifyIconId } = startVerifyTimer(client, account.profileIconId);
-                        client.chat(`EXP: ${expiryDate} ICON DESCRIPTION: ${verifyIcons[verifyIconId]}`); // DO NOT FORGET
+
+                        client.chat(`EXP: ${expiryDate} ICON DESCRIPTION: ${verifyIcons[verifyIconId]}`);
                     } catch (err) {
                         console.log(err);
                         engine.log(err.toString());
                         client.chat(_msgError);
+                    } finally {
+                        // antispam
                     }
                 }
                 break;
@@ -131,51 +132,53 @@ registerPlugin({
                 {
                     if (!accountAlreadyAdded(client)) return client.chat(_msgSummonerNotAdded);
                     if (hasAccountVerified(client)) return client.chat(_msgSummonerAlreadyVerified);
-                    let { account, region } = getAccount(client);
-                    if (accountAlreadyOwned(account, region)) return client.chat(_msgSummonerAlreadyOwned);
 
                     const { expiryDate, verifyIconId } = getVerifyTimer(client);
 
-                    if (expiryDate && expiryDate > Date.now()) {
-                        try {
+                    try {
+                        if (expiryDate && expiryDate > Date.now()) {
                             const { success, found, error } = await updateAccount(client);
 
                             if (!success) throw error;
                             if (!found) throw error;
 
-                            let { account } = getAccount(client);
+                            const { account, region } = getAccount(client);
 
-                            if (account.profileIconId != verifyIconId) {
-                                console.log(account.profileIconId + " verify: " + verifyIconId);
-                                return client.chat(_msgSummonerIconBad);
-                            }
+                            if (account.profileIconId != verifyIconId) return client.chat(_msgSummonerIconBad);
 
                             verifyAccount(client);
-                            client.chat(_msgSummonerVerified);
-
-                            // DUPLICATES
                             removeVerifyTimer(client);
-                        } catch (err) {
-                            console.log(err);
-                            engine.log(err.toString());
-                            client.chat(_msgError);
+                            removeDuplicatedAccounts(account, region);
+
+                            client.chat(_msgSummonerVerified);
+                        } else {
+                            const { success, found, error } = await updateAccount(client);
+
+                            if (!success) throw error;
+                            if (!found) throw error;
+
+                            const { account } = getAccount(client);
+                            const { expiryDate, verifyIconId } = startVerifyTimer(client, account.profileIconId);
+
+                            client.chat(`EXP: ${expiryDate} ICON DESCRIPTION: ${verifyIcons[verifyIconId]}`);
                         }
-                    } else {
-                        const { expiryDate, verifyIconId } = startVerifyTimer(client, account.profileIconId);
-                        client.chat(`EXP: ${expiryDate} ICON DESCRIPTION: ${verifyIcons[verifyIconId]}`); // DO NOT FORGET
+                    } catch (err) {
+                        console.log(err);
+                        engine.log(err.toString());
+                        client.chat(_msgError);
+                    } finally {
+                        // antispam
                     }
                 }
                 break;
             case config.cmdAccountRemove:
                 {
-                    // If client already has ANY account added
-                    if (!accountAlreadyAdded(client)) return client.chat(_msgSummonerNotAdded);
-
-                    removeAccount(client);
-                    client.chat(_msgSummonerRemoved);
-
-                    break;
+                    if (accountAlreadyAdded(client)) {
+                        removeAccount(client);
+                        client.chat(_msgSummonerRemoved);
+                    } else return client.chat(_msgSummonerNotAdded);
                 }
+                break;
             default:
                 return;
         }
@@ -221,6 +224,15 @@ registerPlugin({
     function removeAccount(client) {
         const uid = client.uid();
         store.unset(uid);
+    }
+
+    function removeDuplicatedAccounts(targetAccount, targetRegion) {
+        store.getKeys().forEach(key => {
+            const { account, region, verified } = store.get(uid);
+
+            if (verified === false && region === targetRegion && account.puuid === targetAccount.puuid)
+                store.unset(key);
+        });
     }
 
     function hasAccountVerified(client) {
@@ -280,7 +292,7 @@ registerPlugin({
         const result = {
             "success": true,
             "found": true,
-            "error": new Error("Success!")
+            "error": false
         };
 
         const httpParams = {
