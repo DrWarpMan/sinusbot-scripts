@@ -27,7 +27,6 @@ registerPlugin({
 
     const { apiKey } = config;
 
-    store.getKeys().forEach(i => store.unset(i));
 
     const _apiURL = "https://%REGION%.api.riotgames.com";
 
