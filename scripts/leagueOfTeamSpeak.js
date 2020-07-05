@@ -27,8 +27,6 @@ registerPlugin({
 
     const { apiKey } = config;
 
-    store.getKeys().forEach(i => store.unset(i));
-
     const _apiURL = "https://%REGION%.api.riotgames.com";
 
     const _region = "ALL";
@@ -45,6 +43,7 @@ registerPlugin({
     const _msgSummonerVerified = "VERIFIED";
     const _msgSummonerIconBad = "ICONBAD";
     const _msgSummonerNameBad = "NAMEBAD";
+    const _msgSummonerLost = "SUMMONERLOST";
 
     const _verifyTime = 60;
 
@@ -139,8 +138,12 @@ registerPlugin({
                         if (expiryDate && expiryDate > Date.now()) {
                             const { success, found, error } = await updateAccount(client);
 
+                            if (!found) {
+                                client.chat(_msgSummonerLost);
+                                throw error;
+                            }
+
                             if (!success) throw error;
-                            if (!found) throw error;
 
                             const { account, region } = getAccount(client);
 
@@ -309,7 +312,7 @@ registerPlugin({
             if (response.statusCode == 404) {
                 removeAccount(client)
                 result.found = false;
-                result.error = new Error("Summoner not found -> removing account data!");
+                throw new Error("Summoner not found! (removing account data completely)");
             }
 
             if (response.statusCode != 200) throw new Error(`HTTP Error (${httpParams.url}) - Status [${response.statusCode}]: ${response.status}`);
