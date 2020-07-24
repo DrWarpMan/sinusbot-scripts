@@ -1,6 +1,6 @@
 registerPlugin({
     name: "Online Clients Record",
-    version: "0.0.1",
+    version: "1.0.0",
     description: "Online Clients Record",
     author: "DrWarpMan <drwarpman@gmail.com>",
     backends: ["ts3"],
@@ -10,7 +10,26 @@ registerPlugin({
     hidden: false,
     requiredModules: [],
     voiceCommands: [],
-    vars: []
+    vars: [{
+        name: "channelID",
+        type: "number",
+        title: "Channel ID (where to show the record):",
+        placeholder: "69"
+    }, {
+        name: "channelName",
+        type: "string",
+        title: "Channel Name [Placeholder: %record%]:",
+        placeholder: "Online Clients Record: %record%",
+        default: "Online Clients Record: %record%"
+    }, {
+        name: "ignoredGroupIDs",
+        type: "strings",
+        title: "Ignored Group IDs:"
+    }, {
+        name: "ignoredUIDs",
+        type: "strings",
+        title: "Ignored UIDs:"
+    }]
 }, (_, config, { name, version, author }) => {
 
     const backend = require("backend");
@@ -18,6 +37,50 @@ registerPlugin({
     const event = require("event");
     const store = require("store");
 
+    const { channelID, channelName, ignoredGroupIDs, ignoredUIDs } = config;
+
+    const RECORD_KEYNAME = "record";
+    const RECORD_PLACEHOLDER = "%record%";
+    const UPDATE_INTERVAL = 60;
+
+    event.on("clientMove", checkRecord);
+
+    setInterval(updateChannel, UPDATE_INTERVAL * 1000);
+
+    function updateChannel() {
+        const channel = backend.getChannelByID(channelID);
+
+        if (channel && channelName)
+            channel.setName(channelName.replace(RECORD_PLACEHOLDER, getRecord()));
+    }
+
+    function checkRecord() {
+        const online = backend.getClients().filter(client => !isIgnored(client)).length;
+        let record = getRecord();
+
+        record = (record > online) ? record : online;
+
+        setRecord(record);
+    }
+
+    function setRecord(record) {
+        store.setInstance(RECORD_KEYNAME, record);
+    }
+
+    function getRecord() {
+        return store.getInstance(RECORD_KEYNAME) || 0;
+    }
+
+    /**
+     * If client is in one of the configured ignored group IDs or UIDs
+     *
+     * @param   {Client}  client  
+     *
+     * @return  {boolean}
+     */
+    function isIgnored(client) {
+        return ((ignoredUIDs || []).includes(client.uid())) || (client.getServerGroups().map(g => g.id()).some(gID => (ignoredGroupIDs || []).includes(gID)));
+    }
 
     // SCRIPT LOADED SUCCCESFULLY
     engine.log(`\n[Script] "${name}" [Version] "${version}" [Author] "${author}"`);
