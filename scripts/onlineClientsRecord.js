@@ -13,7 +13,7 @@ registerPlugin({
     vars: [{
         name: "password",
         type: "password",
-        title: "Password (to reset the record):"
+        title: "Password [Command: \"!ocd <password>\"] (to reset the record):"
     }, {
         name: "channelID",
         type: "number",
