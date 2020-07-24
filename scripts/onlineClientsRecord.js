@@ -1,7 +1,7 @@
 registerPlugin({
     name: "Online Clients Record",
     version: "1.0.0",
-    description: "Online Clients Record",
+    description: "Show the most online clients record in a channel name!",
     author: "DrWarpMan <drwarpman@gmail.com>",
     backends: ["ts3"],
     engine: ">= 1.0",
