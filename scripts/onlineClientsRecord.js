@@ -11,6 +11,10 @@ registerPlugin({
     requiredModules: [],
     voiceCommands: [],
     vars: [{
+        name: "password",
+        type: "password",
+        title: "Password (to reset the record):"
+    }, {
         name: "channelID",
         type: "number",
         title: "Channel ID (where to show the record):",
@@ -37,11 +41,23 @@ registerPlugin({
     const event = require("event");
     const store = require("store");
 
-    const { channelID, channelName, ignoredGroupIDs, ignoredUIDs } = config;
+    const { password, channelID, channelName, ignoredGroupIDs, ignoredUIDs } = config;
 
     const RECORD_KEYNAME = "record";
     const RECORD_PLACEHOLDER = "%record%";
     const UPDATE_INTERVAL = 60;
+    const COMMAND = "!ocr";
+
+    event.on("chat", ({ client, text, mode }) => {
+        if (mode != 1) return; // if not private chat
+        if (client.isSelf()) return; // ignore bot /self/ messages
+        if (!password) return; // if password is not defined
+
+        if (text === `${COMMAND} ${password}`) {
+            resetRecord();
+            client.chat("Online Clients Record successfully reset!");
+        }
+    });
 
     event.on("clientMove", checkRecord);
 
@@ -69,6 +85,10 @@ registerPlugin({
 
     function getRecord() {
         return store.getInstance(RECORD_KEYNAME) || 0;
+    }
+
+    function resetRecord() {
+        store.getKeysInstance().forEach(keyName => store.unsetInstance(keyName));
     }
 
     /**
