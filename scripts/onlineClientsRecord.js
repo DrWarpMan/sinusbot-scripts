@@ -11,6 +11,11 @@ registerPlugin({
     requiredModules: [],
     voiceCommands: [],
     vars: [{
+        name: "logEnabled",
+        type: "checkbox",
+        title: "Check to enable detailed logs",
+        default: false
+    }, {
         name: "password",
         type: "password",
         title: "Password [Command: \"!ocd <password>\"] (to reset the record):"
@@ -41,7 +46,7 @@ registerPlugin({
     const event = require("event");
     const store = require("store");
 
-    const { password, channelID, channelName, ignoredGroupIDs, ignoredUIDs } = config;
+    const { logEnabled, password, channelID, channelName, ignoredGroupIDs, ignoredUIDs } = config;
 
     const RECORD_KEYNAME = "record";
     const RECORD_PLACEHOLDER = "%record%";
@@ -51,11 +56,12 @@ registerPlugin({
     event.on("chat", ({ client, text, mode }) => {
         if (mode != 1) return; // if not private chat
         if (client.isSelf()) return; // ignore bot /self/ messages
-        if (!password) return; // if password is not defined
+        if (!password || password.length < 1) return; // if password is not defined
 
         if (text === `${COMMAND} ${password}`) {
             resetRecord();
             client.chat("Online Clients Record successfully reset!");
+            logMsg(`Client "${client.nick()}" reset the record! (${client.uid()})`);
         }
     });
 
@@ -66,21 +72,34 @@ registerPlugin({
     function updateChannel() {
         const channel = backend.getChannelByID(channelID);
 
-        if (channel && channelName)
-            channel.setName(channelName.replace(RECORD_PLACEHOLDER, getRecord()));
+        if (channel && channelName) {
+            const newChannelName = channelName.replace(RECORD_PLACEHOLDER, getRecord());
+
+            if (newChannelName != channel.name()) {
+                const update = channel.setName(newChannelName);
+                logMsg((update) ? `Channel name of channel with ID ${channel.id()} got updated!` : `Channel name of channel with ID "${channel.id()}" could not be updated!`);
+            }
+        }
     }
 
     function checkRecord() {
         const online = backend.getClients().filter(client => !isIgnored(client)).length;
         let record = getRecord();
 
-        record = (record > online) ? record : online;
+        if (record > online)
+            logMsg(`Checking for new record - R: ${record} > O: ${online}, record not reached.. continuing!`)
+        else {
+            record = online;
+            logMsg(`New record! R: ${record} < O: ${online}, saving..`);
+        }
 
-        setRecord(record);
+        const save = setRecord(record);
+
+        logMsg((save) ? "Record saved!" : "Record could not be saved!");
     }
 
     function setRecord(record) {
-        store.setInstance(RECORD_KEYNAME, record);
+        return store.setInstance(RECORD_KEYNAME, record);
     }
 
     function getRecord() {
@@ -102,6 +121,10 @@ registerPlugin({
         return ((ignoredUIDs || []).includes(client.uid())) || (client.getServerGroups().map(g => g.id()).some(gID => (ignoredGroupIDs || []).includes(gID)));
     }
 
+    function logMsg(msg) {
+        return (logEnabled) ? engine.log(msg) : false;
+    }
+
     // SCRIPT LOADED SUCCCESFULLY
-    engine.log(`\n[Script] "${name}" [Version] "${version}" [Author] "${author}"`);
+    logMsg(`\n[Script] "${name}" [Version] "${version}" [Author] "${author}"`);
 });
