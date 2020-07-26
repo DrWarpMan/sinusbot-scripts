@@ -78,8 +78,8 @@ registerPlugin({
             if (newChannelName != channel.name()) {
                 const update = channel.setName(newChannelName);
                 logMsg((update) ? `Channel name of channel with ID ${channel.id()} got updated!` : `Channel name of channel with ID "${channel.id()}" could not be updated!`);
-            }
-        }
+            } else logMsg("No need for channel update! Name is the same..");
+        } else logMsg(`Channel not found or channel name is invalid! (ID: ${channelID}, Name: ${channelName})`);
     }
 
     function checkRecord() {
