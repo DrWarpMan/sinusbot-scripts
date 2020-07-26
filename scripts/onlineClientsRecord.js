@@ -87,15 +87,13 @@ registerPlugin({
         let record = getRecord();
 
         if (record > online)
-            logMsg(`Checking for new record - R: ${record} > O: ${online}, record not reached.. continuing!`)
+            logMsg(`Checking for new record - (OLD RECORD) ${record} > ${online} (ONLINE), record not beaten.. continuing!`)
         else {
+            logMsg(`New record! (OLD RECORD) ${record} < ${online} (ONLINE), saving..`);
             record = online;
-            logMsg(`New record! R: ${record} < O: ${online}, saving..`);
+            const save = setRecord(record);
+            logMsg((save) ? "Record saved!" : "Record could not be saved!");
         }
-
-        const save = setRecord(record);
-
-        logMsg((save) ? "Record saved!" : "Record could not be saved!");
     }
 
     function setRecord(record) {
