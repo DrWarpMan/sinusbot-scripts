@@ -10,11 +10,21 @@ registerPlugin({
     hidden: false,
     requiredModules: [],
     voiceCommands: [],
-    vars: []
+    vars: [{
+        name: "logEnabled",
+        type: "checkbox",
+        title: "Check to enable detailed logs",
+        default: false
+    }]
 }, (_, config, { name, version, author }) => {
 
     const backend = require("backend");
 
+
+    function logMsg(msg) {
+        return (logEnabled) ? engine.log(msg) : false;
+    }
+
     // SCRIPT LOADED SUCCCESFULLY
-    engine.log(`\n[Script] "${name}" [Version] "${version}" [Author] "${author}"`);
+    logMsg(`\n[Script] "${name}" [Version] "${version}" [Author] "${author}"`);
 });
