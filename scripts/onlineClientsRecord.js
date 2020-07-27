@@ -1,6 +1,6 @@
 registerPlugin({
     name: "Online Clients Record",
-    version: "1.0.0",
+    version: "1.0.1",
     description: "Show the most online clients record in a channel name!",
     author: "DrWarpMan <drwarpman@gmail.com>",
     backends: ["ts3"],
@@ -76,8 +76,8 @@ registerPlugin({
             const newChannelName = channelName.replace(RECORD_PLACEHOLDER, getRecord());
 
             if (newChannelName != channel.name()) {
-                const update = channel.setName(newChannelName);
-                logMsg((update) ? `Channel name of channel with ID ${channel.id()} got updated!` : `Channel name of channel with ID "${channel.id()}" could not be updated!`);
+                channel.setName(newChannelName);
+                logMsg(`Trying to update name of channel with ID ${channel.id()} to ${newChannelName}`);
             } else logMsg("No need for channel update! Name is the same..");
         } else logMsg(`Channel not found or channel name is invalid! (ID: ${channelID}, Name: ${channelName})`);
     }
