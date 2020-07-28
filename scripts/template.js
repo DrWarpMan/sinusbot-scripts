@@ -20,6 +20,7 @@ registerPlugin({
 
     const backend = require("backend");
 
+    const { logEnabled } = config;
 
     function logMsg(msg) {
         return (logEnabled) ? engine.log(msg) : false;
