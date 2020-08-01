@@ -23,7 +23,7 @@ registerPlugin({
     const { logEnabled } = config;
 
     function logMsg(msg) {
-        return (logEnabled) ? engine.log(msg) : false;
+        return !!logEnabled && engine.log(msg);
     }
 
     // SCRIPT LOADED SUCCCESFULLY
