@@ -18,7 +18,8 @@ registerPlugin({
     }, {
         name: "password",
         type: "password",
-        title: "Password [Command: \"!ocr <password> <task>\"] (possible tasks are: reset_global, reset_daily, reset_today, reset_visits, reset_all):"
+        title: "Password [Command: \"!ocr <password> <task>\"] (possible tasks are: reset_global, reset_daily, reset_today, reset_visits, reset_all):",
+        default: ""
     }, {
         name: "channels",
         type: "array",
@@ -58,11 +59,13 @@ registerPlugin({
     }, {
         name: "ignoredGroupIDs",
         type: "strings",
-        title: "Ignored Group IDs:"
+        title: "Ignored Group IDs:",
+        default: []
     }, {
         name: "ignoredUIDs",
         type: "strings",
-        title: "Ignored UIDs:"
+        title: "Ignored UIDs:",
+        default: []
     }, {
         name: "dateZeros",
         type: "checkbox",
