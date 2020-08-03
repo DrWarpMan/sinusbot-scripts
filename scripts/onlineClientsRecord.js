@@ -415,13 +415,6 @@ registerPlugin({
         return store.getInstance(`${IP_SAVE_KEYNAME} ${client.uid()}`);
     }
 
-    /**
-     * If client is in one of the configured ignored group IDs or UIDs
-     *
-     * @param   {Client}  client  
-     *
-     * @return  {boolean}
-     */
     function isIgnored(client) {
         return ((ignoredUIDs || []).includes(client.uid())) || (client.getServerGroups().map(g => g.id()).some(gID => (ignoredGroupIDs || []).includes(gID)));
     }
