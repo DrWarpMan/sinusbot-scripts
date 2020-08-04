@@ -55,6 +55,21 @@ registerPlugin({
             name: "descriptionDate",
             type: "string",
             title: "Date format in channel description [Placeholder: %y%, %m%, %d%]:"
+        }, {
+            name: "headerDate",
+            type: "string",
+            title: "HEADER [Date]:",
+            placeholder: "Date"
+        }, {
+            name: "headerUniqueVisits",
+            type: "string",
+            title: "HEADER [Unique Visits]:",
+            placeholder: "Unique Visits"
+        }, {
+            name: "headerRecordOnline",
+            type: "string",
+            title: "HEADER [Record Online]:",
+            placeholder: "Record"
         }]
     }, {
         name: "ignoredGroupIDs",
@@ -147,7 +162,7 @@ registerPlugin({
     function updateChannels() {
         if (!backend.isConnected()) return;
 
-        channels.forEach(({ id, name, topic, description, descriptionDays: days, descriptionDate: dateFormat }) => {
+        channels.forEach(({ id, name, topic, description, descriptionDays: days, descriptionDate: dateFormat, headerUniqueVisits: headerUV, headerDate: headerD, headerRecordOnline: headerRO }) => {
             const channel = backend.getChannelByID(id);
 
             if (channel) {
@@ -180,7 +195,7 @@ registerPlugin({
 
                     let stats = "[table]";
 
-                    stats += `\n[tr]` + `[th]Dátum[/th]` + `[th]         Unikátnych návštev         [/th]` + `[th]Rekordný počet ľudí[/th]` + `\n[/tr]`;
+                    stats += `\n[tr]` + `[th]${headerD || "Date"}[/th]` + `[th]         ${headerUV || "Unique Visits"}         [/th]` + `[th]${headerRO || "Record"}[/th]` + `\n[/tr]`;
 
                     days = parseInt(days);
                     if (!days || days < 0 || days > 90) days = 0;
