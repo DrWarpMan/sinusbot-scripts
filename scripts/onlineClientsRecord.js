@@ -50,7 +50,7 @@ registerPlugin({
         }, {
             name: "descriptionDays",
             type: "number",
-            title: "How many days back, should be shown in the channel description? [Excluding today!] (Max. 90, Min. 0):",
+            title: "How many days back, should be shown in the channel description? [EXCLUDING TODAY] (Max. 59, Min. 0):",
         }, {
             name: "descriptionDate",
             type: "string",
@@ -199,7 +199,7 @@ registerPlugin({
                     stats += `\n[tr]` + `[th]${headerD || "Date"}[/th]` + `[th]         ${headerUV || "Unique Visits"}         [/th]` + `[th]${headerRO || "Record"}[/th]` + `\n[/tr]`;
 
                     days = parseInt(days);
-                    if (!days || days < 0 || days > 90) days = 0;
+                    if (!days || days < 0 || days > 59) days = 0;
 
                     const currentDay = new Date(parseInt(getToday()));
 
