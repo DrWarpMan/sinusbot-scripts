@@ -105,10 +105,12 @@ registerPlugin({
     const COMMAND = "!ocr";
 
     setInterval(updateChannels, UPDATE_INTERVAL * 1000);
+
     event.on("clientMove", checkClient);
     event.on("clientIPAddress", checkVisits);
+    event.on("chat", chatCommands);
 
-    event.on("chat", ({ client, text, mode }) => {
+    function chatCommands({ client, text, mode }) {
         if (client.isSelf()) return;
         if (mode != 1) return; // if not private chat
         if (!password || password.length < 1) return; // if password is not defined, disable command usage
@@ -156,8 +158,7 @@ registerPlugin({
                 client.chat("Invalid password!");
             }
         }
-        return;
-    });
+    }
 
     function updateChannels() {
         if (!backend.isConnected()) return;
