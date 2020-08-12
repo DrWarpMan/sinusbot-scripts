@@ -32,13 +32,13 @@ registerPlugin({
         }, {
             name: "name",
             type: "string",
-            title: "Channel Name [Placeholder: %g_record%, %y%, %m%, %d%, %h%, %m%]:",
+            title: "Channel Name [Placeholder: %g_record%, %y%, %m%, %d%, %h%, %m%, %t_record%]:",
             placeholder: "Online Clients Record: %g_record%",
             default: "Online Clients Record: %g_record%"
         }, {
             name: "topic",
             type: "string",
-            title: "Channel Topic [Placeholder: %g_record%, %y%, %m%, %d%, %h%, %m%]:",
+            title: "Channel Topic [Placeholder: %g_record%, %y%, %m%, %d%, %h%, %m%, %t_record%]:",
             placeholder: "Record: %g_record% Date: %d%.%m%.%y% %h%:%m%",
             default: "Record: %g_record% Date: %d%.%m%.%y% %h%:%m%"
         }, {
@@ -101,6 +101,7 @@ registerPlugin({
     const DAILY_RECORDS_KEYNAME = "daily";
     const IP_SAVE_KEYNAME = "ip";
     const GLOBAL_RECORD_PHOLDER = "%g_record%";
+    const TODAY_RECORD_PHOLDER = "%t_record%";
     const UPDATE_INTERVAL = 60;
     const COMMAND = "!ocr";
 
@@ -176,13 +177,17 @@ registerPlugin({
                 const { record: recordGlobal, date: dateGlobal } = getRecordGlobal();
 
                 const getChannelName = (name, record, date) => {
-                    name = name.replace(GLOBAL_RECORD_PHOLDER, record);
+                    name = name
+                        .replace(GLOBAL_RECORD_PHOLDER, record)
+                        .replace(TODAY_RECORD_PHOLDER, getRecordToday());
                     name = replaceDate(name, date);
                     return name;
                 };
 
                 const getChannelTopic = (topic, record, date) => {
-                    topic = topic.replace(GLOBAL_RECORD_PHOLDER, record);
+                    topic = topic
+                        .replace(GLOBAL_RECORD_PHOLDER, record)
+                        .replace(TODAY_RECORD_PHOLDER, getRecordToday());
                     topic = replaceDate(topic, date);
                     return topic;
                 };
@@ -401,6 +406,14 @@ registerPlugin({
         d.setMilliseconds(0);
 
         return `${d.getTime()}`;
+    }
+
+    function getRecordToday() {
+        const dailyRecords = getDailyRecords();
+        const currentDay = new Date(parseInt(getToday()));
+        const recordToday = dailyRecords[currentDay.getTime()] || 0;
+
+        return recordToday;
     }
 
     function replaceDate(str, date) {
