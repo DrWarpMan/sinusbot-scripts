@@ -1,6 +1,6 @@
 registerPlugin({
     name: "Online Clients Record",
-    version: "2.0.1",
+    version: "2.1.0",
     description: "Show the most online clients record in a channel name and population statistics in a channel description!",
     author: "DrWarpMan <drwarpman@gmail.com>",
     backends: ["ts3"],
@@ -162,7 +162,7 @@ registerPlugin({
     }
 
     function updateChannels() {
-        if (!backend.isConnected()) return;
+        if (!isConnected) return;
 
         channels.forEach(({ id, name, topic, description, descriptionDays: days, descriptionDate: dateFormat, headerUniqueVisits: headerUV, headerDate: headerD, headerRecordOnline: headerRO }) => {
             const channel = backend.getChannelByID(id);
@@ -237,7 +237,10 @@ registerPlugin({
         });
     }
 
-    function checkClient() {
+    function checkClient(moveInfo = false) {
+        if (!isConnected) return;
+        if (moveInfo && moveInfo.fromChannel && moveInfo.toChannel) return;
+
         checkGlobalRecord();
         checkDailyRecords();
     }
@@ -246,6 +249,7 @@ registerPlugin({
      * UNIQUE VISITS
      */
     function checkVisits(client) {
+        if (!isConnected) return;
         if (isIgnored(client)) return;
 
         const uid = client.uid();
@@ -447,6 +451,30 @@ registerPlugin({
     function isIgnored(client) {
         return ((ignoredUIDs || []).includes(client.uid())) || (client.getServerGroups().map(g => g.id()).some(gID => (ignoredGroupIDs || []).includes(gID)));
     }
+
+    /* CONNECTED CHECK */
+
+    let isConnected = false;
+
+    function checkConnection() {
+        setTimeout(() => {
+            if (backend.isConnected())
+                isConnected = true;
+        }, 10 * 1000);
+    }
+
+    event.on("connect", connected);
+
+    function connected() {
+        checkConnection();
+        setTimeout(checkClient, 15 * 1000); // ip check add? 
+    }
+
+    event.on("disconnect", disconnected);
+
+    function disconnected() { isConnected = false }
+
+    /* LOG FUNCTION */
 
     function logMsg(msg) {
         return !!logEnabled && engine.log(msg);
