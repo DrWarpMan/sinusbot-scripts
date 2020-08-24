@@ -481,5 +481,5 @@ registerPlugin({
     }
 
     // SCRIPT LOADED SUCCCESFULLY
-    logMsg(`\n[Script] "${name}" [Version] "${version}" [Author] "${author}"`);
+    engine.log(`\n[Script] "${name}" [Version] "${version}" [Author] "${author}"`);
 });
