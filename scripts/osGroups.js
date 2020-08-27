@@ -1,5 +1,5 @@
 registerPlugin({
-    name: "OS groups",
+    name: "OS Groups",
     version: "1.0.0",
     description: "Assign groups based on their OS (operating system) - Windows, Linux, Mac",
     author: "DrWarpMan <drwarpman@gmail.com>",
