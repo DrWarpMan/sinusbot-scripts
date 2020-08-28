@@ -18,7 +18,7 @@ registerPlugin({
     }]
 }, (_, config, { name, version, author }) => {
 
-    const engine = require("event");
+    const engine = require("engine");
 
     const { logEnabled } = config;
 
