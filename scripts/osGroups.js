@@ -56,6 +56,8 @@ registerPlugin({
     }
 
     function checkOS(client) {
+        // If user disconnected while checking
+        if (!backend.getClientByID(client.id())) return;
 
         if (ignored(client)) return logMsg(`${client.nick()} is ignored, skipping..`);
 
