@@ -464,15 +464,16 @@ registerPlugin({
     }
 
     event.on("connect", connected);
+    event.on("disconnect", disconnected);
 
     function connected() {
         checkConnection();
         setTimeout(checkClient, 15 * 1000); // ip check add? 
     }
 
-    event.on("disconnect", disconnected);
-
     function disconnected() { isConnected = false }
+
+    if (!isConnected) checkConnection();
 
     /* LOG FUNCTION */
 
