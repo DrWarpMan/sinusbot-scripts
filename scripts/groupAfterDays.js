@@ -124,11 +124,11 @@ registerPlugin({
         //const matches = (groups || []).filter(({ neededDays }) => neededDays <= days);
         //return (matches.length <= 0) ? false : matches[matches.length - 1].groupID;
 
-        let match = 0;
+        let match = false;
 
-        (groups || []).forEach(groupData => {
-            if (days >= groupData.days && connections >= groupData.connections)
-                match = groupData;
+        (groups || []).forEach(({ neededDays, neededConnections, groupID }) => {
+            if (days >= (neededDays || 0) && connections >= (neededConnections || 0))
+                match = groupID || 0;
         });
 
         return match;
