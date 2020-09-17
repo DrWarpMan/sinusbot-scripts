@@ -1,7 +1,7 @@
-registerPlugin({ // connections check maybe, message maybe
+registerPlugin({
     name: "Group After Days",
     version: "1.0.0",
-    description: "Template description",
+    description: "Assign group to a client after X days from first connection",
     author: "DrWarpMan <drwarpman@gmail.com>",
     backends: ["ts3"],
     engine: ">= 1.0",
@@ -32,6 +32,11 @@ registerPlugin({ // connections check maybe, message maybe
                 name: "neededDays",
                 type: "number",
                 title: "Needed days:",
+            },
+            {
+                name: "neededConnections",
+                type: "number",
+                title: "Needed connections:",
             }
         ]
     }]
@@ -47,15 +52,8 @@ registerPlugin({ // connections check maybe, message maybe
     if (groups.length <= 0) return logMsg("Empty group data.");
 
     logMsg("Filtering invalid data..");
-    groups = groups.filter(({ groupID, neededDays }) => {
-        return isInt(groupID) && isInt(neededDays) && neededDays > 0 && groupID > 0;
-    });
-
-    logMsg("Sorting data..");
-    groups.sort((a, b) => {
-        if (a.neededDays > b.neededDays) return 1;
-        if (b.neededDays > a.neededDays) return -1;
-        return 0;
+    groups = groups.filter(({ groupID, neededDays, neededConnections }) => {
+        return [groupID, neededDays, neededConnections].every(val => isInt(val) >= 0);
     });
 
     event.on("clientMove", clientMove);
@@ -66,12 +64,13 @@ registerPlugin({ // connections check maybe, message maybe
         if (isIgnored(client)) return;
         if ((toChannel && fromChannel) || !toChannel) return; // only on connection
 
-        setTimeout(() => checkDays(client), 1 * 1000);
+        setTimeout(() => check(client), 1 * 1000);
 
-        const checkDays = client => {
+        const check = client => {
             const firstConnection = client.getCreationTime();
+            const connections = client.getTotalConnections();
 
-            if (firstConnection) {
+            if (firstConnection && connections) {
                 logMsg(`Checking client: ${client.nick()}`);
 
                 const dateNow = new Date();
@@ -79,11 +78,12 @@ registerPlugin({ // connections check maybe, message maybe
                 const dateDiff = dateNow - dateConnected;
 
                 const oneDay = 24 * 60 * 60 * 1000;
-                const diffDays = Math.floor(dateDiff / oneDay);
+                const days = Math.floor(dateDiff / oneDay);
 
-                logMsg(`Days from first connection: ${diffDays}`)
+                logMsg(`Days from first connection: ${days}`)
+                logMsg(`Connections: ${connections}`)
 
-                const addGroupID = findGroupIDByDays(diffDays);
+                const addGroupID = findGroupID(days, connections);
 
                 if (!addGroupID) return logMsg(`No group yet! :)`);
 
@@ -102,7 +102,7 @@ registerPlugin({ // connections check maybe, message maybe
                 logMsg(`Try to remove other groups if have any..`);
                 removeGroups(client, otherGroupIDs);
                 logMsg(`Done.`);
-            } else logMsg(`Couldn't get first connection date from: ${client.nick()}`);
+            } else logMsg(`Couldn't get data from: ${client.nick()}`);
         }
     }
 
@@ -119,16 +119,19 @@ registerPlugin({ // connections check maybe, message maybe
         return client.getServerGroups().map(g => g.id()).includes(`${groupID}`);
     }
 
-    function findGroupIDByDays(days = 0) {
-        const matches = (groups || []).filter(({ neededDays }) => neededDays <= days);
-        return (matches.length <= 0) ? false : matches[matches.length - 1].groupID;
+    function findGroupID(days = 0, connections = 0) {
+        // OLD CODE, IGNORE
+        //const matches = (groups || []).filter(({ neededDays }) => neededDays <= days);
+        //return (matches.length <= 0) ? false : matches[matches.length - 1].groupID;
 
-        /*        let match = 0;
+        let match = 0;
 
-                (groups || []).forEach(groupData => {
-                    if (days >= groupData.days && connections >= groupData.connections)
-                        match = groupData;
-                });*/
+        (groups || []).forEach(groupData => {
+            if (days >= groupData.days && connections >= groupData.connections)
+                match = groupData;
+        });
+
+        return match;
     }
 
     function isIgnored(client) {
