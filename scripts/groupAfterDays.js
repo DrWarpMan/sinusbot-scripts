@@ -1,4 +1,4 @@
-registerPlugin({
+registerPlugin({ // consider anti-spam, message upon assign?
     name: "Group After Days",
     version: "1.0.0",
     description: "Assign group to a client after X days from first connection",
@@ -56,6 +56,19 @@ registerPlugin({
         return [groupID, neededDays, neededConnections].every(val => isInt(val) >= 0);
     });
 
+    logMsg("Sorting group data..");
+    console.log(groups);
+    groups.sort((a, b) => {
+        if (a.neededDays || 0 > b.neededDays || 0) return 1;
+        if (a.neededDays || 0 < b.neededDays || 0) return -1;
+
+        if (a.neededConnections || 0 > b.neededConnections || 0) return 1;
+        if (a.neededConnections || 0 < b.neededConnections || 0) return -1;
+
+        return 0;
+    });
+    console.log(groups);
+
     event.on("clientMove", clientMove);
 
     function clientMove({ client, toChannel, fromChannel }) {
@@ -85,7 +98,8 @@ registerPlugin({
 
                 const addGroupID = findGroupID(days, connections);
 
-                if (!addGroupID) return logMsg(`No group yet! :)`);
+                if (addGroupID === false) return logMsg(`No group yet!`);
+                if (!addGroupID) return logMsg(`Error, invalid group ID!`);
 
                 const group = backend.getServerGroupByID(addGroupID);
 
@@ -120,10 +134,6 @@ registerPlugin({
     }
 
     function findGroupID(days = 0, connections = 0) {
-        // OLD CODE, IGNORE
-        //const matches = (groups || []).filter(({ neededDays }) => neededDays <= days);
-        //return (matches.length <= 0) ? false : matches[matches.length - 1].groupID;
-
         let match = false;
 
         (groups || []).forEach(({ neededDays, neededConnections, groupID }) => {
