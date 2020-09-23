@@ -104,8 +104,8 @@ registerPlugin({
 
     event.on("chat", chat);
     event.on("clientMove", clientMove);
-    event.on("serverGroupAdded", serverGroupEvent);
-    event.on("serverGroupRemoved", serverGroupEvent);
+    event.on("serverGroupAdded", sgAdded);
+    event.on("serverGroupRemoved", sgRemoved);
 
     function chat({ text, client }) {
         if (client.isSelf()) return;
@@ -150,8 +150,12 @@ registerPlugin({
             checkVIP(params.client);
     }
 
-    function serverGroupEvent({ client, serverGroup }) {
-        if (serverGroup.id() == vipGroupID) checkVIP(client);
+    function sgAdded({ client, serverGroup }) {
+        if (serverGroup.id() == vipGroupID) checkVIP(client, "has");
+    }
+
+    function sgRemoved({ client, serverGroup }) {
+        if (serverGroup.id() == vipGroupID) checkVIP(client, "hasnot");
     }
 
     /**
@@ -210,13 +214,11 @@ registerPlugin({
      * VIP CHANNEL
      */
 
-    function checkVIP(client) {
+    function checkVIP(client, force = null) {
         if (!(vipGroupID && vipParentChannelID)) return logMsg("ERROR: Invalid VIP settings..");
 
         if (hasChannel(client)) {
-            const clientGroupIDs = client.getServerGroups().map(g => g.id());
-            const hasVIP = clientGroupIDs.some(gID => gID == vipGroupID);
-
+            const hasVIP = (force != null) ? ((force === "has") ? true : false) : client.getServerGroups().map(g => g.id()).some(gID => gID == vipGroupID);
             const channel = backend.getChannelByID(store.get(client.uid()));
 
             if (hasVIP) {
