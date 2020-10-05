@@ -1,6 +1,6 @@
 registerPlugin({ // consider anti-spam, message upon assign?
     name: "Group After Days",
-    version: "1.0.0",
+    version: "1.0.1",
     description: "Assign group to a client after X days from first connection",
     author: "DrWarpMan <drwarpman@gmail.com>",
     backends: ["ts3"],
