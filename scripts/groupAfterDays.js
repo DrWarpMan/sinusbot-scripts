@@ -57,17 +57,15 @@ registerPlugin({ // consider anti-spam, message upon assign?
     });
 
     logMsg("Sorting group data..");
-    console.log(groups);
     groups.sort((a, b) => {
-        if (a.neededDays || 0 > b.neededDays || 0) return 1;
-        if (a.neededDays || 0 < b.neededDays || 0) return -1;
+        if ((a.neededDays || 0) > (b.neededDays || 0)) return 1;
+        if ((a.neededDays || 0) < (b.neededDays || 0)) return -1;
 
-        if (a.neededConnections || 0 > b.neededConnections || 0) return 1;
-        if (a.neededConnections || 0 < b.neededConnections || 0) return -1;
+        if ((a.neededConnections || 0) > (b.neededConnections || 0)) return 1;
+        if ((a.neededConnections || 0) < (b.neededConnections || 0)) return -1;
 
         return 0;
     });
-    console.log(groups);
 
     event.on("clientMove", clientMove);
 
