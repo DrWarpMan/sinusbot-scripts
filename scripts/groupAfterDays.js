@@ -72,7 +72,7 @@ registerPlugin({ // consider anti-spam, message upon assign?
     function clientMove({ client, toChannel, fromChannel }) {
         if (!isConnected) return;
         if (client.isSelf()) return;
-        if (isIgnored(client)) return;
+        if (isIgnored(client)) return removeGroups(client, groups.map(({ groupID }) => groupID));
         if ((toChannel && fromChannel) || !toChannel) return; // only on connection
 
         setTimeout(() => check(client), 1 * 1000);
