@@ -83,7 +83,6 @@ registerPlugin({
         if (command === COMMAND_LIST.toLowerCase()) {
             if (isAdmin(client)) {
                 const timestamp = args[0];
-                let list = "[b]Activity:[/b]\n";
                 let activity;
 
                 switch (timestamp) {
@@ -101,7 +100,11 @@ registerPlugin({
                         activity = getActivity();
                 }
 
-                client.chat(list += activity);
+                client.chat("[b]Activity:[/b]")
+
+                activity.forEach(activityDate => {
+                    client.chat(activityDate);
+                });
             } else client.chat("No permission!");
         }
     }
@@ -111,7 +114,7 @@ registerPlugin({
     }
 
     function getActivity(days = 1) { // if no activity, check - undefined
-        let result = "";
+        let result = [];
 
         const today = getToday();
         const startDate = new Date(today);
@@ -122,19 +125,21 @@ registerPlugin({
         Array(days).fill("").forEach((_, index) => {
             const todayData = data[startDate.getTime()]
 
-            result += `Date: [b]${startDate}[/b]\n`;
+            let resultDate = "";
+            resultDate += `Date: [b]${startDate.toDateString()}[/b]\n`;
 
-            if (!todayData) result += `[i]No activity today..[/i]`;
+            if (!todayData) resultDate += `[i]No activity today..[/i]`;
             else {
                 Object.keys(todayData).forEach(uid => {
                     const nick = getNick(uid);
                     const activity = todayData[uid];
 
-                    result += `Nick: ${nick} Activity: ${activity}`;
+                    resultDate += `[b]Nick:[/b] [url=client://0/${uid}]${nick}[/url] [b]Activity:[/b] ${formatActivity(activity)}`;
                 });
             }
 
-            result += "\n";
+            resultDate += "\n";
+            result.push(resultDate);
 
             startDate.setDate(startDate.getDate() - 1);
         });
@@ -215,6 +220,14 @@ registerPlugin({
 
     function isInt(value) {
         return Number.isInteger(+value);
+    }
+
+    function formatActivity(secs) {
+        const hours = Math.floor((secs) / (60 * 60));
+        secs -= hours * 60 * 60;
+        const minutes = Math.floor((secs) / (60));
+
+        return `${hours}h ${minutes}m`;
     }
 
     /* LOGGING */
