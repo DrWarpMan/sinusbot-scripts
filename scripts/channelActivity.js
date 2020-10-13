@@ -32,6 +32,11 @@ registerPlugin({
         title: "Admin Group IDs of clients, which are able to use admin command(s):",
         default: []
     }, {
+        name: "adminUids",
+        type: "strings",
+        title: "UIDs of admins:",
+        default: []
+    }, {
         name: "groupIDs",
         type: "strings",
         title: "Group IDs of clients, which's activity will be recorded:",
@@ -55,7 +60,8 @@ registerPlugin({
     let { interval } = config;
 
     const KEY_NAME = "activity";
-    const COMMAND_LIST = "!list";
+    const COMMAND_LIST = "!alist";
+    const COMMAND_RESET = "!areset";
 
     /* SIMPLE CHECKS */
 
@@ -107,10 +113,18 @@ registerPlugin({
                 });
             } else client.chat("No permission!");
         }
+
+        if (command === COMMAND_RESET.toLowerCase()) {
+            if (isAdmin(client)) {
+                if (resetData())
+                    client.chat("[b]All activity reset succesfully![/b]");
+                else client.chat("[b]Error[/b]");
+            } else client.chat("No permission!");
+        }
     }
 
     function isAdmin(client) {
-        return client.getServerGroups().map(g => g.id()).some(gID => (adminGroupIDs || []).includes(gID))
+        return isInGroupsOrUIDs(client, adminGroupIDs, adminUids);
     }
 
     function getActivity(days = 1) { // if no activity, check - undefined
@@ -211,9 +225,12 @@ registerPlugin({
         return store.set(KEY_NAME, data);
     }
 
+    function resetData() {
+        return store.unset(KEY_NAME);
+    }
+
     function isInList(client) {
-        return client.getServerGroups().map(g => g.id()).some(gID => groupIDs.includes(gID)) ||
-            uids.includes(client.uid());
+        return isInGroupsOrUIDs(client, groupIDs, uids);
     }
 
     /* OTHER FUNCTIONS */
@@ -228,6 +245,11 @@ registerPlugin({
         const minutes = Math.floor((secs) / (60));
 
         return `${hours}h ${minutes}m`;
+    }
+
+    function isInGroupsOrUIDs(client, groupArr = [], uidArr = []) {
+        return client.getServerGroups().map(g => g.id()).some(gID => (groupArr || []).includes(gID)) ||
+            (uidArr || []).includes(client.uid());
     }
 
     /* LOGGING */
