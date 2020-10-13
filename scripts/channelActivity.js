@@ -56,7 +56,7 @@ registerPlugin({
 
     /* VARS */
 
-    const { channels, adminGroupIDs, groupIDs, uids, logEnabled } = config;
+    const { channels, adminGroupIDs, adminUids, groupIDs, uids, logEnabled } = config;
     let { interval } = config;
 
     const KEY_NAME = "activity";
