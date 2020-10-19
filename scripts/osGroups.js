@@ -46,7 +46,7 @@ registerPlugin({
     event.on("clientMove", clientMove);
 
     function clientMove({ client, fromChannel, toChannel }) {
-        if (!isConnected) return;
+        if (!isConnected) return logMsg("Waiting for backend.. if this message persists, there is a bug.");
         if (client.isSelf()) return;
 
         const justConnected = (!fromChannel && toChannel) ? true : false;
