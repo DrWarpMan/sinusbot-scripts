@@ -67,11 +67,7 @@ registerPlugin({
 
     const verifyTimer = {};
 
-    const verifyIcons = {
-        6: "Tibers Paw",
-        7: "Red Rose",
-        28: "Tiny Tibbers"
-    };
+    // FINISH REMOVE ICON VERIFY
 
     event.on("chat", async({ text, client, mode }) => {
         const msg = text.split(" ").filter(i => /\s/.test(i) === false && i.length > 0);
@@ -83,49 +79,48 @@ registerPlugin({
 
         switch (command) {
             case config.cmdAccountAdd:
-                {
-                    if (args.length <= 0) return client.chat(_msgInvalidSyntax);
+                if (args.length <= 0) return client.chat(_msgInvalidSyntax);
 
-                    const summonerName = (_region !== "ALL") ? args.join(" ") : args.slice(0, args.length - 1).join(" ");
-                    const region = regions[(_region !== "ALL") ? _region : args[args.length - 1].toUpperCase()];
+                const summonerName = (_region !== "ALL") ? args.join(" ") : args.slice(0, args.length - 1).join(" ");
+                const region = regions[(_region !== "ALL") ? _region : args[args.length - 1].toUpperCase()];
 
-                    if (!summonerName || (summonerName && summonerName.length <= 1)) return client.chat(_msgSummonerNameBad);
-                    if (typeof region === "undefined") return client.chat(_msgRegionInvalid);
+                if (!summonerName || (summonerName && summonerName.length <= 1)) return client.chat(_msgSummonerNameBad);
+                if (typeof region === "undefined") return client.chat(_msgRegionInvalid);
 
+                if (accountAlreadyAdded(client)) return client.chat(_msgSummonerAlreadyAdded);
+
+                try {
                     const httpParams = {
                         method: "GET",
                         timeout: 5 * 1000,
                         url: regionAPI(region) + `/lol/summoner/v4/summoners/by-name/${encodeURI(summonerName)}?api_key=${apiKey}`
                     };
 
-                    try {
-                        const { error, response } = await httpRequest(httpParams);
+                    const { error, response } = await httpRequest(httpParams);
 
-                        if (error) throw new Error(`Error: ${error}`);
+                    if (error) throw new Error(`Error: ${error}`);
 
-                        if (response.statusCode == 404) return client.chat(_msgSummonerNotFound);
-                        if (response.statusCode != 200) throw new Error(`HTTP Error (${httpParams.url}) - Status [${response.statusCode}]: ${response.status}`);
+                    if (response.statusCode == 404) return client.chat(_msgSummonerNotFound);
 
-                        client.chat("Account found: " + JSON.stringify(JSON.parse(response.data)));
+                    if (response.statusCode != 200) throw new Error(`HTTP Error (${httpParams.url}) - Status [${response.statusCode}]: ${response.status}`);
 
-                        const account = JSON.parse(response.data);
+                    const account = JSON.parse(response.data);
 
-                        if (accountAlreadyAdded(client)) return client.chat(_msgSummonerAlreadyAdded);
-                        if (accountAlreadyOwned(account, region)) return client.chat(_msgSummonerAlreadyOwned);
+                    if (accountAlreadyOwned(account, region)) return client.chat(_msgSummonerAlreadyOwned);
 
-                        setAccount(client, account, region);
+                    setAccount(client, account, region);
 
-                        const { expiryDate, verifyIconId } = startVerifyTimer(client, account.profileIconId);
+                    const { expiryDate, verifyIconId } = startVerifyTimer(client, account.profileIconId);
 
-                        client.chat(`EXP: ${expiryDate} ICON DESCRIPTION: ${verifyIcons[verifyIconId]}`);
-                    } catch (err) {
-                        console.log(err);
-                        engine.log(err.toString());
-                        client.chat(_msgError);
-                    } finally {
-                        // antispam
-                    }
+                    client.chat(`EXP: ${expiryDate} ICON DESCRIPTION: ${verifyIcons[verifyIconId]}`);
+                } catch (err) {
+                    console.log(err);
+                    engine.log(err.toString());
+                    client.chat(_msgError);
+                } finally {
+                    // antispam
                 }
+
                 break;
             case config.cmdAccountVerify:
                 {
@@ -173,14 +168,15 @@ registerPlugin({
                         // antispam
                     }
                 }
+
                 break;
             case config.cmdAccountRemove:
-                {
-                    if (accountAlreadyAdded(client)) {
-                        removeAccount(client);
-                        client.chat(_msgSummonerRemoved);
-                    } else return client.chat(_msgSummonerNotAdded);
-                }
+                if (!accountAlreadyAdded(client)) return client.chat(_msgSummonerNotAdded);
+
+                removeAccount(client);
+
+                client.chat(_msgSummonerRemoved);
+
                 break;
             default:
                 return;
