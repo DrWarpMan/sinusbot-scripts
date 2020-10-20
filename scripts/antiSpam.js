@@ -22,8 +22,6 @@ registerPlugin({
 
     const { logEnabled } = config;
 
-    engine.log("test");
-
     function logMsg(msg) {
         return !!logEnabled && engine.log(msg);
     }
