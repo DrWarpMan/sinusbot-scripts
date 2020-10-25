@@ -19,11 +19,15 @@ registerPlugin({
     }]
 }, (_, config, { name, version, author }) => {
 
+    /* INTERFACES */
+
     const backend = require("backend");
     const engine = require("engine");
     const http = require("http");
     const event = require("event");
     const store = require("store");
+
+    /* VARS */
 
     const { apiKey } = config;
 
@@ -41,9 +45,8 @@ registerPlugin({
     const _msgSummonerRemoved = "REMOVED";
     const _msgSummonerAlreadyVerified = "ALREADYVERIFIED";
     const _msgSummonerVerified = "VERIFIED";
-    const _msgSummonerIconBad = "ICONBAD";
     const _msgSummonerNameBad = "NAMEBAD";
-    const _msgSummonerLost = "SUMMONERLOST";
+    const _msgSummonerCodeInvalid = "CODEINVALID";
 
     const _verifyTime = 60;
 
@@ -67,9 +70,11 @@ registerPlugin({
 
     const verifyTimer = {};
 
-    // FINISH REMOVE ICON VERIFY
+    /**
+     * COMMANDS
+     */
 
-    event.on("chat", async({ text, client, mode }) => {
+    event.on("chat", ({ text, client, mode }) => {
         const msg = text.split(" ").filter(i => /\s/.test(i) === false && i.length > 0);
         const command = msg[0].toLowerCase();
         const args = msg.slice(1);
@@ -79,109 +84,256 @@ registerPlugin({
 
         switch (command) {
             case config.cmdAccountAdd:
-                if (args.length <= 0) return client.chat(_msgInvalidSyntax);
-
-                const summonerName = (_region !== "ALL") ? args.join(" ") : args.slice(0, args.length - 1).join(" ");
-                const region = regions[(_region !== "ALL") ? _region : args[args.length - 1].toUpperCase()];
-
-                if (!summonerName || (summonerName && summonerName.length <= 1)) return client.chat(_msgSummonerNameBad);
-                if (typeof region === "undefined") return client.chat(_msgRegionInvalid);
-
-                if (accountAlreadyAdded(client)) return client.chat(_msgSummonerAlreadyAdded);
-
-                try {
-                    const httpParams = {
-                        method: "GET",
-                        timeout: 5 * 1000,
-                        url: regionAPI(region) + `/lol/summoner/v4/summoners/by-name/${encodeURI(summonerName)}?api_key=${apiKey}`
-                    };
-
-                    const { error, response } = await httpRequest(httpParams);
-
-                    if (error) throw new Error(`Error: ${error}`);
-
-                    if (response.statusCode == 404) return client.chat(_msgSummonerNotFound);
-
-                    if (response.statusCode != 200) throw new Error(`HTTP Error (${httpParams.url}) - Status [${response.statusCode}]: ${response.status}`);
-
-                    const account = JSON.parse(response.data);
-
-                    if (accountAlreadyOwned(account, region)) return client.chat(_msgSummonerAlreadyOwned);
-
-                    setAccount(client, account, region);
-
-                    const { expiryDate, verifyIconId } = startVerifyTimer(client, account.profileIconId);
-
-                    client.chat(`EXP: ${expiryDate} ICON DESCRIPTION: ${verifyIcons[verifyIconId]}`);
-                } catch (err) {
-                    console.log(err);
-                    engine.log(err.toString());
-                    client.chat(_msgError);
-                } finally {
-                    // antispam
-                }
-
+                cmdFuncs.accountAdd(client, args);
                 break;
             case config.cmdAccountVerify:
-                {
-                    if (!accountAlreadyAdded(client)) return client.chat(_msgSummonerNotAdded);
-                    if (hasAccountVerified(client)) return client.chat(_msgSummonerAlreadyVerified);
-
-                    const { expiryDate, verifyIconId } = getVerifyTimer(client);
-
-                    try {
-                        if (expiryDate && expiryDate > Date.now()) {
-                            const { success, found, error } = await updateAccount(client);
-
-                            if (!found) {
-                                client.chat(_msgSummonerLost);
-                                throw error;
-                            }
-
-                            if (!success) throw error;
-
-                            const { account, region } = getAccount(client);
-
-                            if (account.profileIconId != verifyIconId) return client.chat(_msgSummonerIconBad);
-
-                            verifyAccount(client);
-                            removeVerifyTimer(client);
-                            removeDuplicatedAccounts(account, region);
-
-                            client.chat(_msgSummonerVerified);
-                        } else {
-                            const { success, found, error } = await updateAccount(client);
-
-                            if (!success) throw error;
-                            if (!found) throw error;
-
-                            const { account } = getAccount(client);
-                            const { expiryDate, verifyIconId } = startVerifyTimer(client, account.profileIconId);
-
-                            client.chat(`EXP: ${expiryDate} ICON DESCRIPTION: ${verifyIcons[verifyIconId]}`);
-                        }
-                    } catch (err) {
-                        console.log(err);
-                        engine.log(err.toString());
-                        client.chat(_msgError);
-                    } finally {
-                        // antispam
-                    }
-                }
-
+                cmdFuncs.accountVerify(client);
                 break;
             case config.cmdAccountRemove:
-                if (!accountAlreadyAdded(client)) return client.chat(_msgSummonerNotAdded);
-
-                removeAccount(client);
-
-                client.chat(_msgSummonerRemoved);
-
+                cmdFuncs.accountRemove(client);
                 break;
             default:
                 return;
         }
     });
+
+    const cmdFuncs = {
+        async accountAdd(client, args) {
+
+            // Run checks
+
+            if (args.length <= 0) return client.chat(_msgInvalidSyntax);
+            if (accountAlreadyAdded(client)) return client.chat(_msgSummonerAlreadyAdded);
+
+            const summonerName = (_region !== "ALL") ? args.join(" ") : args.slice(0, args.length - 1).join(" ");
+            const region = regions[(_region !== "ALL") ? _region : args[args.length - 1].toUpperCase()];
+
+            if (!summonerName || (summonerName && summonerName.length <= 1)) return client.chat(_msgSummonerNameBad);
+            if (!region) return client.chat(_msgRegionInvalid);
+
+            // Start adding proccess
+
+            try {
+                const account = await summonerByName(summonerName);
+
+                if (account === null) return client.chat(_msgError);
+                if (account === false) return client.chat(_msgSummonerNotFound);
+
+                if (accountAlreadyOwned(account, region)) return client.chat(_msgSummonerAlreadyOwned);
+                accountSet(client, account, region);
+
+                verifyStartMsg(client);
+            } catch (err) {
+                console.log(err);
+                engine.log(err.toString());
+                client.chat(_msgError);
+            }
+        },
+
+        async accountVerify(client) {
+
+            // Run checks
+
+            if (!accountAlreadyAdded(client)) return client.chat(_msgSummonerNotAdded);
+            if (accountVerified(client)) return client.chat(_msgSummonerAlreadyVerified);
+
+            // Start verifying proccess
+
+            const { expiryDate, verifyCode } = verifyGetTimer(client);
+
+            if (expiryDate && expiryDate > Date.now()) { // Time expired?
+                try {
+                    const { account, region } = accountGet(client);
+                    const code = await summonerGetCode(account, region)
+
+                    if (code === null) return client.chat(_msgError);
+                    if (code === false || code !== verifyCode) return client.chat(_msgSummonerCodeInvalid);
+
+                    accountVerify(client);
+                    verifyRemoveTimer(client);
+                    accountRemoveDuplicates(account, region);
+
+                    client.chat(_msgSummonerVerified);
+                } catch (err) {
+                    console.log(err);
+                    engine.log(err.toString());
+                    client.chat(_msgError);
+                }
+            } else { // Generate new verification code
+                verifyStartMsg(client);
+            }
+        },
+
+        accountRemove(client) {
+
+            // Run checks
+
+            if (!accountAlreadyAdded(client)) return client.chat(_msgSummonerNotAdded);
+
+            // Start removing proccess
+
+            const remove = accountRemove(client);
+
+            if (remove) client.chat(_msgSummonerRemoved);
+            else client.chat(_msgError);
+        }
+    }
+
+    /**
+     * Functions: ACCOUNT MANAGEMENT
+     */
+
+    function accountSet(client, account, region, verified = false) {
+        const uid = client.uid();
+
+        store.set(uid, {
+            "account": account,
+            "region": region,
+            "verified": verified
+        });
+    }
+
+    function accountGet(client) {
+        return store.get(client.uid());
+    }
+
+    function accountRemove(client) {
+        return !!store.unset(client.uid());
+    }
+
+    function accountRemoveDuplicates(targetAccount, targetRegion) {
+        store.getKeys().forEach((uid /* key name */ ) => {
+            const { account, region, verified } = store.get(uid);
+
+            if (verified === false && region === targetRegion && account.puuid === targetAccount.puuid)
+                store.unset(key);
+        });
+    }
+
+    function accountVerified(client) {
+        const accountData = store.get(client.uid());
+
+        return accountData.verified == true;
+    }
+
+    function accountAlreadyOwned(targetAccount, targetRegion) {
+        return store.getKeys().some(uid => {
+            const { account, region, verified } = store.get(uid);
+            return verified === true && region === targetRegion && account.puuid === targetAccount.puuid;
+        });
+    }
+
+    function accountAlreadyAdded(client) {
+        const accountData = store.get(client.uid());
+        return !!accountData || (accountData && accountData.account);
+    }
+
+    function accountVerify(client) {
+        const uid = client.uid();
+        const accountData = store.get(uid);
+
+        accountData.verified = true;
+
+        return store.set(uid, accountData);
+    }
+
+    /**
+     * Functions: VERIFY
+     */
+
+    function verifyStartMsg(client) {
+        const { expiryDate, verifyCode } = verifyStartTimer(client);
+        client.chat(`EXP: ${expiryDate} CODE: ${verifyCode}`);
+    }
+
+    function verifyStartTimer(client) {
+        const code = verifyRandCode();
+
+        return verifyTimer[client.uid()] = {
+            "expiryDate": Date.now() + _verifyTime * 1000,
+            "verifyCode": code
+        }
+    }
+
+    function verifyGetTimer(client) {
+        return verifyTimer[client.uid()] || {
+            expiryDate: 0,
+            verifyCode: false
+        };
+    }
+
+    function verifyRemoveTimer(client) {
+        delete verifyTimer[client.uid()];
+    }
+
+    function verifyRandCode() {
+        return Math.random().toString(20).substr(2, 6);
+    }
+
+    /**
+     * Functions: SUMMONER
+     */
+
+    async function summonerByName(summonerName) {
+        let account = null;
+
+        const httpParams = {
+            method: "GET",
+            timeout: 5 * 1000,
+            url: regionize(region) + `/lol/summoner/v4/summoners/by-name/${encodeURI(summonerName)}?api_key=${apiKey}`
+        };
+
+        try {
+            const { error, response } = await httpRequest(httpParams);
+
+            if (error) throw new Error(`Error: ${error}`);
+            if (response.statusCode == 404) account = false;
+
+            if (account !== false) {
+                if (response.statusCode != 200) throw new Error(`HTTP Error (${httpParams.url}) - Status [${response.statusCode}]: ${response.status}`);
+                account = JSON.parse(response.data);
+            }
+        } catch (err) {
+            console.log(err);
+            engine.log(err.toString());
+        } finally {
+            return account;
+        }
+    }
+
+    async function summonerGetCode(account, region) {
+        let code = null;
+
+        const httpParams = {
+            method: "GET",
+            timeout: 5 * 1000,
+            url: regionize(region) + `/lol/platform/v4/third-party-code/by-summoner/${encodeURI(account.id)}?api_key=${apiKey}`
+        };
+
+        try {
+            const { error, response } = await httpRequest(httpParams);
+
+            if (error) throw new Error(`Error: ${error}`);
+
+            if (response.statusCode == 404) code = false;
+            if (response.statusCode != 200) throw new Error(`HTTP Error (${httpParams.url}) - Status [${response.statusCode}]: ${response.status}`);
+
+            code = JSON.parse(response.data);
+        } catch (err) {
+            console.log(err);
+            engine.log(err.toString());
+        } finally {
+            return code;
+        }
+    }
+
+    /**
+     * Functions: OTHER
+     */
+
+    function regionize(region) {
+        return _apiURL.replace("%REGION%", region);
+    }
 
     function httpRequest(params) {
         return new Promise(
@@ -198,132 +350,6 @@ registerPlugin({
                 }
             }
         );
-    }
-
-    function regionAPI(region) {
-        return _apiURL.replace("%REGION%", region);
-    }
-
-    function setAccount(client, account, region, verified = false) {
-        const uid = client.uid();
-
-        store.set(uid, {
-            "account": account,
-            "region": region,
-            "verified": verified
-        });
-    }
-
-    function getAccount(client) {
-        const uid = client.uid();
-
-        return store.get(uid);
-    }
-
-    function removeAccount(client) {
-        const uid = client.uid();
-        store.unset(uid);
-    }
-
-    function removeDuplicatedAccounts(targetAccount, targetRegion) {
-        store.getKeys().forEach(key => {
-            const { account, region, verified } = store.get(uid);
-
-            if (verified === false && region === targetRegion && account.puuid === targetAccount.puuid)
-                store.unset(key);
-        });
-    }
-
-    function hasAccountVerified(client) {
-        const uid = client.uid();
-        const accountData = store.get(uid);
-
-        return accountData.verified == true;
-    }
-
-    function accountAlreadyOwned(targetAccount, targetRegion) {
-        return store.getKeys().some(uid => {
-            const { account, region, verified } = store.get(uid);
-
-            return verified === true && region === targetRegion && account.puuid === targetAccount.puuid;
-        });
-    }
-
-    function accountAlreadyAdded(client) {
-        const accountData = store.get(client.uid());
-        return !!accountData || accountData && accountData.account;
-    }
-
-    function verifyAccount(client) {
-        const uid = client.uid();
-        const accountData = store.get(uid);
-
-        accountData.verified = true;
-
-        store.set(uid, accountData);
-    }
-
-    function startVerifyTimer(client, profileIconId) {
-        const uid = client.uid();
-        const icons = Object.keys(verifyIcons).filter(iconId => iconId != profileIconId);
-        const verifyIconId = icons[Math.floor(Math.random() * icons.length)];
-
-        return verifyTimer[uid] = {
-            "expiryDate": Date.now() + _verifyTime * 1000,
-            "verifyIconId": verifyIconId
-        }
-    }
-
-    function getVerifyTimer(client) {
-        const uid = client.uid();
-        return verifyTimer[uid];
-    }
-
-    function removeVerifyTimer(client) {
-        const uid = client.uid();
-        delete verifyTimer[uid];
-    }
-
-    async function updateAccount(client) {
-        const uid = client.uid();
-        const { account, region, verified } = store.get(uid);
-
-        const result = {
-            "success": true,
-            "found": true,
-            "error": false
-        };
-
-        const httpParams = {
-            method: "GET",
-            timeout: 5 * 1000,
-            url: regionAPI(region) + `/lol/summoner/v4/summoners/by-puuid/${encodeURI(account.puuid)}?api_key=${apiKey}`
-        };
-
-        try {
-            const { error, response } = await httpRequest(httpParams);
-
-            if (error) throw new Error(`Error: ${error}`);
-
-            if (response.statusCode == 404) {
-                removeAccount(client)
-                result.found = false;
-                throw new Error("Summoner not found! (removing account data completely)");
-            }
-
-            if (response.statusCode != 200) throw new Error(`HTTP Error (${httpParams.url}) - Status [${response.statusCode}]: ${response.status}`);
-
-            const account = JSON.parse(response.data);
-
-            setAccount(client, account, region, verified);
-        } catch (err) {
-            console.log(err);
-            engine.log(err.toString());
-            result.success = false;
-            result.error = err;
-        } finally {
-            return result;
-        }
     }
 
     // SCRIPT LOADED SUCCCESFULLY
