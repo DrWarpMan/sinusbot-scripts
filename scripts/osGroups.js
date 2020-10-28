@@ -1,6 +1,6 @@
 registerPlugin({
     name: "OS Groups",
-    version: "1.0.1",
+    version: "1.0.2",
     description: "Assign groups based on their OS (operating system) - Windows, Linux, Mac",
     author: "DrWarpMan <drwarpman@gmail.com>",
     backends: ["ts3"],
@@ -36,6 +36,11 @@ registerPlugin({
         title: "Group ID [Android]:",
         placeholder: "69"
     }, {
+        name: "groupI",
+        type: "number",
+        title: "Group ID [iOS]:",
+        placeholder: "69"
+    }, {
         name: "ignoredGroupIDs",
         type: "strings",
         title: "Ignored Group IDs:"
@@ -46,7 +51,7 @@ registerPlugin({
     const engine = require("event");
     const event = require("event");
 
-    const { logEnabled, groupW, groupL, groupM, groupA, ignoredGroupIDs } = config;
+    const { logEnabled, groupW, groupL, groupM, groupA, groupI, ignoredGroupIDs } = config;
 
     event.on("clientMove", clientMove);
 
@@ -84,6 +89,10 @@ registerPlugin({
                 logMsg(`Recognized OS: "${os}" (UID: ${client.uid()})`);
                 addGroup(client, groupA);
                 break;
+            case "iOS":
+                logMsg(`Recognized OS: "${os}" (UID: ${client.uid()})`);
+                addGroup(client, groupI);
+                break;
             default:
                 logMsg(`Unrecognized OS: "${os}" (UID: ${client.uid()})`);
         }
@@ -105,7 +114,7 @@ registerPlugin({
     }
 
     function removeOtherGroups(client, groupID) {
-        const osGroups = [groupW, groupL, groupM, groupA].filter(gID => gID != groupID);
+        const osGroups = [groupW, groupL, groupM, groupA, groupI].filter(gID => gID != groupID);
 
         osGroups.forEach(gID => {
             const groupToRemove = backend.getServerGroupByID(gID);
