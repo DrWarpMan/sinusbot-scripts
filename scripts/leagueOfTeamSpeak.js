@@ -1,6 +1,50 @@
+const ranks = {
+    CHALLENGERI: 27,
+    GRANDMASTERI: 26,
+    MASTERI: 25,
+    DIAMONDI: 24,
+    DIAMONDII: 23,
+    DIAMONDIII: 22,
+    DIAMONDIV: 21,
+    PLATINUMI: 20,
+    PLATINUMII: 19,
+    PLATINUMIII: 18,
+    PLATINUMIV: 17,
+    GOLDI: 16,
+    GOLDII: 15,
+    GOLDIII: 14,
+    GOLDIV: 13,
+    SILVERI: 12,
+    SILVERII: 11,
+    SILVERIII: 10,
+    SILVERIV: 9,
+    BRONZEI: 8,
+    BRONZEII: 7,
+    BRONZEIII: 6,
+    BRONZEIV: 5,
+    IRONI: 4,
+    IRONII: 3,
+    IRONIII: 2,
+    IRONIV: 1,
+    UNRANKED: 0
+};
+
+function loadRankVars() {
+    return Object.keys(ranks).map(rank => ({
+        name: "rank_" + rank,
+        type: "number",
+        title: rank,
+        placeholder: "69",
+        indent: 3,
+        conditions: [{ field: 'ranksGroups', value: 1 }]
+    }));
+}
+
+const rankVars = loadRankVars();
+
 registerPlugin({
     name: "League of TeamSpeak",
-    version: "0.0.1",
+    version: "1.0.0",
     description: "League of Legends TeamSpeak Integration",
     author: "DrWarpMan <drwarpman@gmail.com>",
     backends: ["ts3"],
@@ -11,16 +55,27 @@ registerPlugin({
     requiredModules: ["http"],
     voiceCommands: [],
     vars: [{
-        name: "apiKey",
-        type: "password",
-        title: "Riot Games API key:",
-        placeholder: "RGAPI-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
-        default: ""
-    }]
+            name: "apiKey",
+            type: "password",
+            title: "Riot Games API key:",
+            placeholder: "RGAPI-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+            default: ""
+        }, {
+            name: "ranksGroups",
+            title: "Show ranks and groups settings:",
+            type: "checkbox",
+            default: false
+        }, ...rankVars,
+        /* HIDDEN VARIABLES - DO NOT TOUCH */
+        {
+            name: "ranksObj",
+            title: "",
+            default: ranks
+        }
+    ]
 }, (_, config, { name, version, author }) => {
 
     /* INTERFACES */
-
     const backend = require("backend");
     const engine = require("engine");
     const http = require("http");
@@ -50,6 +105,18 @@ registerPlugin({
 
     const _verifyTime = 60;
 
+    const _rankShow = "FLEX";
+
+    const cmdAccountAdd = "!add";
+    const cmdAccountVerify = "!ver";
+    const cmdAccountRemove = "!rem";
+
+    // GLOBAL CONSTS
+    const SOLO_TYPE = "RANKED_SOLO_5x5";
+    const FLEX_TYPE = "RANKED_FLEX_SR";
+
+    const CFG_PREFIX_RANK = "rank_";
+
     const regions = {
         BR: "BR1",
         EUNE: "EUN1",
@@ -64,11 +131,9 @@ registerPlugin({
         TR: "TR1"
     }
 
-    config.cmdAccountAdd = "!add";
-    config.cmdAccountVerify = "!ver";
-    config.cmdAccountRemove = "!rem";
-
     const verifyTimer = {};
+
+    const { ranksObj: ranks } = config; // hidden ranks variable
 
     /**
      * COMMANDS
@@ -83,13 +148,13 @@ registerPlugin({
         if (mode != 1) return;
 
         switch (command) {
-            case config.cmdAccountAdd:
+            case cmdAccountAdd:
                 cmdFuncs.accountAdd(client, args);
                 break;
-            case config.cmdAccountVerify:
+            case cmdAccountVerify:
                 cmdFuncs.accountVerify(client);
                 break;
-            case config.cmdAccountRemove:
+            case cmdAccountRemove:
                 cmdFuncs.accountRemove(client);
                 break;
             default:
@@ -114,7 +179,7 @@ registerPlugin({
             // Start adding proccess
 
             try {
-                const account = await summonerByName(summonerName);
+                const account = await summonerByName(summonerName, region);
 
                 if (account === null) return client.chat(_msgError);
                 if (account === false) return client.chat(_msgSummonerNotFound);
@@ -146,12 +211,13 @@ registerPlugin({
                     const { account, region } = accountGet(client);
                     const code = await summonerGetCode(account, region)
 
-                    if (code === null) return client.chat(_msgError);
-                    if (code === false || code !== verifyCode) return client.chat(_msgSummonerCodeInvalid);
+                    //if (code === null) return client.chat(_msgError);
+                    //if (code === false || code !== verifyCode) return client.chat(_msgSummonerCodeInvalid);
 
-                    accountVerify(client);
+                    accountMakeVerified(client);
                     verifyRemoveTimer(client);
                     accountRemoveDuplicates(account, region);
+                    accountUpdate(client);
 
                     client.chat(_msgSummonerVerified);
                 } catch (err) {
@@ -180,13 +246,24 @@ registerPlugin({
     }
 
     /**
+     * Functions: CLIENT MANAGEMENT
+     */
+
+    function clientHasGroup(client, groupID) {
+        groupID += ""; // convert to string
+        return client.getServerGroups().map(g => g.id()).includes(groupID);
+    }
+
+    function clientHasGroups(client, groupIDs) {
+        return client.getServerGroups().map(g => g.id()).some(gID => groupIDs.includes(gID));
+    }
+
+    /**
      * Functions: ACCOUNT MANAGEMENT
      */
 
     function accountSet(client, account, region, verified = false) {
-        const uid = client.uid();
-
-        store.set(uid, {
+        store.set(client.uid(), {
             "account": account,
             "region": region,
             "verified": verified
@@ -197,12 +274,71 @@ registerPlugin({
         return store.get(client.uid());
     }
 
+    async function accountUpdate(client) {
+        const { account, region, verified } = accountGet(client);
+
+        if (!verified) return;
+
+        accountRankUpdate(client, account, region);
+        accountMasteryUpdate();
+    }
+
+    async function accountRankUpdate(client, account, region) {
+        const rankData = await summonerRanks(account, region);
+
+        // Probably error ocurred in http request
+        if (rankData === null) return;
+
+        const soloData = Object.values(rankData).find(({ queueType }) => queueType === SOLO_TYPE);
+        const flexData = Object.values(rankData).find(({ queueType }) => queueType === FLEX_TYPE);
+
+        const { tier: soloTier, rank: soloRank } = (!soloData) ? {} : soloData;
+        const { tier: flexTier, rank: flexRank } = (!flexData) ? {} : flexData;
+
+        const soloFull = (!soloData) ? "UNRANKED" : `${soloTier}${soloRank}`;
+        const flexFull = (!flexData) ? "UNRANKED" : `${flexTier}${flexRank}`;
+
+        let finalRank;
+
+        switch (_rankShow) {
+            case "SOLO":
+                finalRank = soloFull;
+                break;
+            case "FLEX":
+                finalRank = flexFull;
+                break;
+            default: // HIGHEST
+                const soloWeight = ranks[soloFull];
+                const flexWeight = ranks[flexFull];
+
+                finalRank = soloWeight < flexWeight ? flexFull : soloFull;
+        }
+
+        const groupID = config[CFG_PREFIX_RANK + finalRank];
+
+        if (!groupID) return engine.log(`ERROR: Group for rank: ${finalRank} was not found!`);
+
+        if (!clientHasGroup(client, groupID)) client.addToServerGroup(groupID);
+
+        const otherRanks = Object.keys(ranks).filter(rank => rank !== finalRank);
+
+        otherRanks.forEach(rank => {
+            const groupID = config[CFG_PREFIX_RANK + rank];
+            if (!groupID) engine.log(`Group for rank: ${rank} was not found!`);
+            if (clientHasGroup(client, groupID)) client.removeFromServerGroup(groupID);
+        });
+    }
+
+    function accountMasteryUpdate(client, account, region) {
+
+    }
+
     function accountRemove(client) {
         return !!store.unset(client.uid());
     }
 
     function accountRemoveDuplicates(targetAccount, targetRegion) {
-        store.getKeys().forEach((uid /* key name */ ) => {
+        store.getKeys().forEach((uid) => {
             const { account, region, verified } = store.get(uid);
 
             if (verified === false && region === targetRegion && account.puuid === targetAccount.puuid)
@@ -228,7 +364,7 @@ registerPlugin({
         return !!accountData || (accountData && accountData.account);
     }
 
-    function accountVerify(client) {
+    function accountMakeVerified(client) {
         const uid = client.uid();
         const accountData = store.get(uid);
 
@@ -273,8 +409,7 @@ registerPlugin({
     /**
      * Functions: SUMMONER
      */
-
-    async function summonerByName(summonerName) {
+    async function summonerByName(summonerName, region) {
         let account = null;
 
         const httpParams = {
@@ -301,6 +436,30 @@ registerPlugin({
         }
     }
 
+    async function summonerRanks(account, region) {
+        let rankData = null;
+
+        const httpParams = {
+            method: "GET",
+            timeout: 5 * 1000,
+            url: regionize(region) + `/lol/league/v4/entries/by-summoner/${account.id}?api_key=${apiKey}`
+        };
+
+        try {
+            const { error, response } = await httpRequest(httpParams);
+
+            if (error) throw new Error(`Error: ${error}`);
+            if (response.statusCode != 200) throw new Error(`HTTP Error (${httpParams.url}) - Status [${response.statusCode}]: ${response.status}`);
+
+            rankData = JSON.parse(response.data);
+        } catch (err) {
+            console.log(err);
+            engine.log(err.toString());
+        } finally {
+            return rankData;
+        }
+    }
+
     async function summonerGetCode(account, region) {
         let code = null;
 
@@ -316,9 +475,11 @@ registerPlugin({
             if (error) throw new Error(`Error: ${error}`);
 
             if (response.statusCode == 404) code = false;
-            if (response.statusCode != 200) throw new Error(`HTTP Error (${httpParams.url}) - Status [${response.statusCode}]: ${response.status}`);
 
-            code = JSON.parse(response.data);
+            if (code !== false) {
+                if (response.statusCode != 200) throw new Error(`HTTP Error (${httpParams.url}) - Status [${response.statusCode}]: ${response.status}`);
+                code = JSON.parse(response.data);
+            }
         } catch (err) {
             console.log(err);
             engine.log(err.toString());
@@ -330,6 +491,13 @@ registerPlugin({
     /**
      * Functions: OTHER
      */
+
+    function loadRanks() {
+        const ranks = {};
+        const ranksNames = (Object.keys(config).filter(varName => varName.startsWith(CFG_PREFIX_RANK))).reverse();
+        ranksNames.forEach((rankName, index) => ranks[rankName] = index);
+        return ranks;
+    }
 
     function regionize(region) {
         return _apiURL.replace("%REGION%", region);
