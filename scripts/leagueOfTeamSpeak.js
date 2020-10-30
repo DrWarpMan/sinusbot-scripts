@@ -98,14 +98,12 @@ registerPlugin({
 
     /* CONST VARS */
 
-    const apiURL = "https://%REGION%.api.riotgames.com";
-    const rankMethods = {
-        "0": "HIGHEST",
-        "1": "SOLO",
-        "2": "FLEX"
-    }
-
     const _region = "ALL";
+    const _verifyTime = 60;
+
+    const cmdAccountAdd = "!add";
+    const cmdAccountVerify = "!ver";
+    const cmdAccountRemove = "!rem";
 
     const _msgError = "ERROR";
     const _msgSummonerNotFound = "NOT_FOUND";
@@ -120,17 +118,20 @@ registerPlugin({
     const _msgSummonerNameBad = "NAMEBAD";
     const _msgSummonerCodeInvalid = "CODEINVALID";
 
-    const _verifyTime = 60;
-
-    const cmdAccountAdd = "!add";
-    const cmdAccountVerify = "!ver";
-    const cmdAccountRemove = "!rem";
-
     // DEF VARS
+    const API_URL = "https://%REGION%.api.riotgames.com";
+
+    const RANK_METHODS = {
+        "0": "HIGHEST",
+        "1": "SOLO",
+        "2": "FLEX"
+    }
+
+    const CFG_PREFIX_RANK = "rank_";
+
     const SOLO_TYPE = "RANKED_SOLO_5x5";
     const FLEX_TYPE = "RANKED_FLEX_SR";
 
-    const CFG_PREFIX_RANK = "rank_";
 
     const REGIONS = {
         BR: "BR1",
@@ -313,7 +314,7 @@ registerPlugin({
 
         let finalRank;
 
-        switch (rankMethods[rankShowMethod]) {
+        switch (RANK_METHODS[rankShowMethod]) {
             case "SOLO":
                 finalRank = soloFull;
                 break;
@@ -337,12 +338,13 @@ registerPlugin({
 
         // Remove other ranks
 
-        const otherRanks = Object.keys(ranks).filter(rank => rank !== finalRank);
+        const otherRanks = Object.keys(ranks);
 
         otherRanks.forEach(rank => {
-            const groupID = config[CFG_PREFIX_RANK + rank];
-            if (!groupID) engine.log(`Group for rank: ${rank} was not found!`);
-            if (clientHasGroup(client, groupID)) client.removeFromServerGroup(groupID);
+            const otherGroupID = config[CFG_PREFIX_RANK + rank];
+            if (!otherGroupID) engine.log(`Group for rank: ${rank} was not found!`);
+            if (otherGroupID == groupID) return; // dont remove already assigned group
+            if (clientHasGroup(client, otherGroupID)) client.removeFromServerGroup(otherGroupID);
         });
     }
 
@@ -403,7 +405,7 @@ registerPlugin({
         const code = verifyRandCode();
 
         return VERIFY_TIMER[client.uid()] = {
-            "expiryDate": ate.now() + _verifyTime * 1000,
+            "expiryDate": Date.now() + _verifyTime * 1000,
             "verifyCode": code
         }
     }
@@ -509,15 +511,8 @@ registerPlugin({
      * Functions: OTHER
      */
 
-    function loadRanks() {
-        const ranks = {};
-        const ranksNames = (Object.keys(config).filter(varName => varName.startsWith(CFG_PREFIX_RANK))).reverse();
-        ranksNames.forEach((rankName, index) => ranks[rankName] = index);
-        return ranks;
-    }
-
     function regionize(region) {
-        return _apiURL.replace("%REGION%", region);
+        return API_URL.replace("%REGION%", region);
     }
 
     function httpRequest(params) {
