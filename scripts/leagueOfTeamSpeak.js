@@ -61,6 +61,12 @@ registerPlugin({
             placeholder: "RGAPI-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
             default: ""
         }, {
+            name: "rankShowMethod",
+            type: "select",
+            title: "What rank to show?",
+            options: ["HIGHEST", "SOLO", "FLEX"],
+            default: 0
+        }, {
             name: "ranksGroups",
             title: "Show ranks and groups settings:",
             type: "checkbox",
@@ -76,17 +82,28 @@ registerPlugin({
 }, (_, config, { name, version, author }) => {
 
     /* INTERFACES */
+
     const backend = require("backend");
     const engine = require("engine");
     const http = require("http");
     const event = require("event");
     const store = require("store");
 
-    /* VARS */
+    /* CONFIG VARS */
 
-    const { apiKey } = config;
+    const { apiKey, rankShowMethod } = config;
 
-    const _apiURL = "https://%REGION%.api.riotgames.com";
+    // Hidden config variables
+    const { ranksObj: ranks } = config;
+
+    /* CONST VARS */
+
+    const apiURL = "https://%REGION%.api.riotgames.com";
+    const rankMethods = {
+        "0": "HIGHEST",
+        "1": "SOLO",
+        "2": "FLEX"
+    }
 
     const _region = "ALL";
 
@@ -105,19 +122,17 @@ registerPlugin({
 
     const _verifyTime = 60;
 
-    const _rankShow = "FLEX";
-
     const cmdAccountAdd = "!add";
     const cmdAccountVerify = "!ver";
     const cmdAccountRemove = "!rem";
 
-    // GLOBAL CONSTS
+    // DEF VARS
     const SOLO_TYPE = "RANKED_SOLO_5x5";
     const FLEX_TYPE = "RANKED_FLEX_SR";
 
     const CFG_PREFIX_RANK = "rank_";
 
-    const regions = {
+    const REGIONS = {
         BR: "BR1",
         EUNE: "EUN1",
         EUWE: "EUW1",
@@ -131,9 +146,7 @@ registerPlugin({
         TR: "TR1"
     }
 
-    const verifyTimer = {};
-
-    const { ranksObj: ranks } = config; // hidden ranks variable
+    const VERIFY_TIMER = {};
 
     /**
      * COMMANDS
@@ -171,7 +184,7 @@ registerPlugin({
             if (accountAlreadyAdded(client)) return client.chat(_msgSummonerAlreadyAdded);
 
             const summonerName = (_region !== "ALL") ? args.join(" ") : args.slice(0, args.length - 1).join(" ");
-            const region = regions[(_region !== "ALL") ? _region : args[args.length - 1].toUpperCase()];
+            const region = REGIONS[(_region !== "ALL") ? _region : args[args.length - 1].toUpperCase()];
 
             if (!summonerName || (summonerName && summonerName.length <= 1)) return client.chat(_msgSummonerNameBad);
             if (!region) return client.chat(_msgRegionInvalid);
@@ -300,7 +313,7 @@ registerPlugin({
 
         let finalRank;
 
-        switch (_rankShow) {
+        switch (rankMethods[rankShowMethod]) {
             case "SOLO":
                 finalRank = soloFull;
                 break;
@@ -316,9 +329,13 @@ registerPlugin({
 
         const groupID = config[CFG_PREFIX_RANK + finalRank];
 
+        // Add his rank
+
         if (!groupID) return engine.log(`ERROR: Group for rank: ${finalRank} was not found!`);
 
         if (!clientHasGroup(client, groupID)) client.addToServerGroup(groupID);
+
+        // Remove other ranks
 
         const otherRanks = Object.keys(ranks).filter(rank => rank !== finalRank);
 
@@ -385,21 +402,21 @@ registerPlugin({
     function verifyStartTimer(client) {
         const code = verifyRandCode();
 
-        return verifyTimer[client.uid()] = {
-            "expiryDate": Date.now() + _verifyTime * 1000,
+        return VERIFY_TIMER[client.uid()] = {
+            "expiryDate": ate.now() + _verifyTime * 1000,
             "verifyCode": code
         }
     }
 
     function verifyGetTimer(client) {
-        return verifyTimer[client.uid()] || {
+        return VERIFY_TIMER[client.uid()] || {
             expiryDate: 0,
             verifyCode: false
         };
     }
 
     function verifyRemoveTimer(client) {
-        delete verifyTimer[client.uid()];
+        delete VERIFY_TIMER[client.uid()];
     }
 
     function verifyRandCode() {
