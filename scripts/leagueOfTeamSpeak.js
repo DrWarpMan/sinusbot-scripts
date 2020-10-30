@@ -29,6 +29,20 @@ const ranks = {
     UNRANKED: 0
 };
 
+const regions = {
+    BR: "BR1",
+    EUNE: "EUN1",
+    EUW: "EUW1",
+    JP: "JP1",
+    KR: "KR",
+    LAN: "LA1",
+    LAS: "LA2",
+    NA: "NA1",
+    OCE: "OC1",
+    RU: "RU",
+    TR: "TR1"
+};
+
 function loadRankVars() {
     return Object.keys(ranks).map(rank => ({
         name: "rank_" + rank,
@@ -40,7 +54,19 @@ function loadRankVars() {
     }));
 }
 
+function loadRegionVars() {
+    return Object.keys(regions).map(regionName => ({
+        name: "region_" + regionName,
+        type: "checkbox",
+        title: regionName,
+        indent: 3,
+        default: false,
+        conditions: [{ field: 'regions', value: 1 }]
+    }));
+}
+
 const rankVars = loadRankVars();
+const regionVars = loadRegionVars();
 
 registerPlugin({
     name: "League of TeamSpeak",
@@ -64,11 +90,16 @@ registerPlugin({
             name: "rankShowMethod",
             type: "select",
             title: "What rank to show?",
-            options: ["HIGHEST", "SOLO", "FLEX"],
+            options: ["HIGHEST (default)", "SOLO", "FLEX"],
             default: 0
         }, {
+            name: "regions",
+            type: "checkbox",
+            title: "Show regions (check to enable a region):",
+            default: false
+        }, ...regionVars, {
             name: "ranksGroups",
-            title: "Show ranks and groups settings:",
+            title: "Show ranks (and their group IDs):",
             type: "checkbox",
             default: false
         }, ...rankVars,
@@ -77,6 +108,10 @@ registerPlugin({
             name: "ranksObj",
             title: "",
             default: ranks
+        }, {
+            name: "regionsObj",
+            title: "",
+            default: regions
         }
     ]
 }, (_, config, { name, version, author }) => {
@@ -94,11 +129,10 @@ registerPlugin({
     const { apiKey, rankShowMethod } = config;
 
     // Hidden config variables
-    const { ranksObj: ranks } = config;
+    const { ranksObj: ranks, regionsObj: regions } = config;
 
     /* CONST VARS */
 
-    const _region = "ALL";
     const _verifyTime = 60;
 
     const cmdAccountAdd = "!add";
@@ -118,7 +152,7 @@ registerPlugin({
     const _msgSummonerNameBad = "NAMEBAD";
     const _msgSummonerCodeInvalid = "CODEINVALID";
 
-    // DEF VARS
+    /* DEFINTIONS */
     const API_URL = "https://%REGION%.api.riotgames.com";
 
     const RANK_METHODS = {
@@ -128,24 +162,10 @@ registerPlugin({
     }
 
     const CFG_PREFIX_RANK = "rank_";
+    const CFG_PREFIX_REGION = "region_";
 
     const SOLO_TYPE = "RANKED_SOLO_5x5";
     const FLEX_TYPE = "RANKED_FLEX_SR";
-
-
-    const REGIONS = {
-        BR: "BR1",
-        EUNE: "EUN1",
-        EUWE: "EUW1",
-        JP: "JP1",
-        KR: "KR",
-        LAN: "LA1",
-        LAS: "LA2",
-        NA: "NA1",
-        OCE: "OC1",
-        RU: "RU",
-        TR: "TR1"
-    }
 
     const VERIFY_TIMER = {};
 
@@ -184,11 +204,11 @@ registerPlugin({
             if (args.length <= 0) return client.chat(_msgInvalidSyntax);
             if (accountAlreadyAdded(client)) return client.chat(_msgSummonerAlreadyAdded);
 
-            const summonerName = (_region !== "ALL") ? args.join(" ") : args.slice(0, args.length - 1).join(" ");
-            const region = REGIONS[(_region !== "ALL") ? _region : args[args.length - 1].toUpperCase()];
+            const summonerName = args.slice(0, args.length - 1).join(" ");
+            const region = args[args.length - 1].toUpperCase();
 
+            if (!regionIsValid(region)) return client.chat(_msgRegionInvalid);
             if (!summonerName || (summonerName && summonerName.length <= 1)) return client.chat(_msgSummonerNameBad);
-            if (!region) return client.chat(_msgRegionInvalid);
 
             // Start adding proccess
 
@@ -511,8 +531,12 @@ registerPlugin({
      * Functions: OTHER
      */
 
+    function regionIsValid(region) {
+        return !!config[CFG_PREFIX_REGION + region];
+    }
+
     function regionize(region) {
-        return API_URL.replace("%REGION%", region);
+        return API_URL.replace("%REGION%", regions[region]);
     }
 
     function httpRequest(params) {
