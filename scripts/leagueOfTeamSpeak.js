@@ -224,8 +224,8 @@ registerPlugin({
                     const { account, region } = accountGet(client);
                     const code = await summonerGetCode(account, region)
 
-                    //if (code === null) return client.chat(_msgError);
-                    //if (code === false || code !== verifyCode) return client.chat(_msgSummonerCodeInvalid);
+                    if (code === null) return client.chat(_msgError);
+                    if (code === false || code !== verifyCode) return client.chat(_msgSummonerCodeInvalid);
 
                     accountMakeVerified(client);
                     verifyRemoveTimer(client);
