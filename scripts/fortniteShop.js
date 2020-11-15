@@ -48,7 +48,7 @@ registerPlugin({
         }, {
             name: "description",
             type: "multiline",
-            title: "Description:"
+            title: "Description [Placeholders: %daily%, %featured%, %upcoming%]:"
         }]
     }]
 }, (_, config, { name, version, author }) => {
