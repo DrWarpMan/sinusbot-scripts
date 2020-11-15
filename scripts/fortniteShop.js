@@ -189,13 +189,7 @@ registerPlugin({
         const itemRows = arrSplitBy(items, columns);
         let desc = "";
 
-        itemRows.forEach(itemRow => {
-            desc += "[tr]";
-            itemRow.forEach(({ img }) => desc += `[td][img]${img + "?width=" + imgSize}[/img][/td]`);
-            desc += "[/tr]";
-        });
-
-        desc = "[table]" + desc + "[/table]";
+        itemRows.forEach(itemRow => itemRow.forEach(({ img }) => desc += `[img]${img + "?width=" + imgSize}[/img]`));
 
         return desc;
     }
