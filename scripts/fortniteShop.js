@@ -43,7 +43,7 @@ registerPlugin({
         }, {
             name: "columns",
             type: "number",
-            title: "Number of columns (images per line) [Default: 3]:",
+            title: "Number of columns (images per line) (use 0 for auto) [Default: 3]:",
             placeholder: "3"
         }, {
             name: "description",
@@ -176,9 +176,10 @@ registerPlugin({
         } else throw new Error("Error while receiving image url!");
     }
 
-    function arrSplitBy(array = [], splitNum = 1) {
+    function arrSplitBy(array = [], splitNum = 0) {
+        if (splitNum == 0) return array;
         return (array || []).reduce((acc, curr, index) => {
-            if (index % (splitNum || 1) === 0)
+            if (index % splitNum === 0)
                 acc.push([]);
             acc[acc.length - 1].push(curr);
             return acc;
@@ -186,10 +187,21 @@ registerPlugin({
     }
 
     function itemsDesc(items, columns, imgSize) {
-        const itemRows = arrSplitBy(items, columns);
         let desc = "";
 
-        itemRows.forEach(itemRow => itemRow.forEach(({ img }) => desc += `[img]${img + "?width=" + imgSize}[/img]`));
+        if (columns == 0) {
+            items.forEach(({ img }) => desc += `[img]${img + "?width=" + imgSize}[/img]`);
+        } else {
+            const itemRows = arrSplitBy(items, columns);
+
+            itemRows.forEach(itemRow => {
+                desc += "[tr]";
+                itemRow.forEach(({ img }) => desc += `[td][img]${img + "?width=" + imgSize}[/img][/td]`);
+                desc += "[/tr]";
+            });
+
+            desc = "[table]" + desc + "[/table]";
+        }
 
         return desc;
     }
