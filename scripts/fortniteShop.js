@@ -1,4 +1,4 @@
-registerPlugin({
+registerPlugin({ // AUTO REFRESH
     name: "Fortnite Shop [fortniteapi.io]",
     version: "1.0.0",
     description: "Fortnite Shop in TeamSpeak channel!",
@@ -41,6 +41,10 @@ registerPlugin({
             title: "Size of images (x * x) [Default: 64]:",
             placeholder: "64"
         }, {
+            name: "imgFull",
+            type: "checkbox",
+            title: "Use full background => with name and price?"
+        }, {
             name: "columns",
             type: "number",
             title: "Number of columns (images per line) (use 0 for auto) [Default: 3]:",
@@ -74,16 +78,19 @@ registerPlugin({
             return logMsg("Error while receiving items..");
 
         channels.forEach(channelData => {
-            const { id, imgSize, columns } = channelData;
+            const { id, imgSize, imgFull, columns } = channelData;
             let { description } = channelData;
 
             const channel = backend.getChannelByID(id);
 
             if (channel) {
                 if (description) {
-                    description = description.replace("%daily%", itemsDesc(dailyItems, columns, imgSize))
-                        .replace("%featured%", itemsDesc(featuredItems, columns, imgSize))
-                        .replace("%upcoming%", itemsDesc(upcomingItems, columns, imgSize));
+                    const imgType = (imgFull) ? "full" : "noinfo";
+
+                    description = description
+                        .replace("%daily%", itemsDesc(dailyItems, columns, imgSize, imgType))
+                        .replace("%featured%", itemsDesc(featuredItems, columns, imgSize, imgType))
+                        .replace("%upcoming%", itemsDesc(upcomingItems, columns, imgSize, imgType));
 
                     channel.setDescription(description);
                 } else logMsg("Channel description empty!");
@@ -171,8 +178,10 @@ registerPlugin({
 
         if (match) {
             const id = match[1];
-            const img = `https://media.fortniteapi.io/images/${id}/background_full.en.png`;
-            return img;
+            return {
+                "full": `https://media.fortniteapi.io/images/${id}/background_full.en.png`,
+                "noinfo": `https://media.fortniteapi.io/images/${id}/background.png`
+            };
         } else throw new Error("Error while receiving image url!");
     }
 
@@ -186,17 +195,22 @@ registerPlugin({
         }, []);
     }
 
-    function itemsDesc(items, columns, imgSize) {
+    function itemsDesc(items, columns, imgSize, imgType) {
+        const cacheFix = (imgType === "full") ? getCacheFix() : "";
         let desc = "";
 
         if (columns == 0) {
-            items.forEach(({ img }) => desc += `[img]${img + "?width=" + imgSize}[/img]`);
+            items.forEach(({ img }) => desc += `[img]${img[imgType] + "?width=" + imgSize + cacheFix}[/img]`);
         } else {
             const itemRows = arrSplitBy(items, columns);
 
             itemRows.forEach(itemRow => {
                 desc += "[tr]";
-                itemRow.forEach(({ img }) => desc += `[td][img]${img + "?width=" + imgSize}[/img][/td]`);
+                itemRow.forEach(({ img }) => {
+                    desc += "[td]";
+                    desc += `[img]${img[imgType] + "?width=" + imgSize + cacheFix}[/img]`;
+                    desc += "[/td]";
+                });
                 desc += "[/tr]";
             });
 
@@ -204,6 +218,10 @@ registerPlugin({
         }
 
         return desc;
+    }
+
+    function getCacheFix() {
+        return `&${Math.floor(Date.now()/1000)}`;
     }
 
     function httpRequest(params) {
