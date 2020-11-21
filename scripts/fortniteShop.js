@@ -1,4 +1,4 @@
-registerPlugin({ // AUTO REFRESH
+registerPlugin({
     name: "Fortnite Shop [fortniteapi.io]",
     version: "1.0.0",
     description: "Fortnite Shop in TeamSpeak channel!",
@@ -66,6 +66,7 @@ registerPlugin({ // AUTO REFRESH
 
     event.on("connect", updateData);
     setInterval(updateData, (interval || 5) * 60 * 1000);
+    updateSchedule();
 
     async function updateData() {
         if (!backend.isConnected()) return;
@@ -116,10 +117,10 @@ registerPlugin({ // AUTO REFRESH
             if (error) throw new Error(`Error: ${error}`);
             if (response.statusCode != 200) throw new Error(`HTTP Error (${httpParams.url}) - Status [${response.statusCode}]: ${response.status}`);
 
-            shop = JSON.parse(response.data);
+            const shop = JSON.parse(response.data);
 
-            daily = formatItems([...shop.specialDaily, ...shop.daily]);
-            featured = formatItems([...shop.specialFeatured, ...shop.featured]);
+            const daily = formatItems([...shop.specialDaily, ...shop.daily]);
+            const featured = formatItems([...shop.specialFeatured, ...shop.featured]);
 
             shopItems = {
                 daily,
@@ -160,6 +161,51 @@ registerPlugin({ // AUTO REFRESH
         } finally {
             return upcomingItems;
         }
+    }
+
+    async function updateSchedule() {
+        const httpParams = {
+            method: "GET",
+            timeout: 5000,
+            url: "https://fortniteapi.io/shop",
+            headers: {
+                'Authorization': apiKey
+            }
+        };
+
+        let endingDates = false;
+
+        try {
+            const { error, response } = await httpRequest(httpParams);
+
+            if (error) throw new Error(`Error: ${error}`);
+            if (response.statusCode != 200) throw new Error(`HTTP Error (${httpParams.url}) - Status [${response.statusCode}]: ${response.status}`);
+
+            const shop = JSON.parse(response.data);
+
+            endingDates = shop.endingDates;
+        } catch (err) {
+            console.log(err);
+            engine.log(err.toString());
+            return false;
+        }
+
+        if (!endingDates) return logMsg("Error, while scheduling data update!");
+
+        const { daily, featured } = endingDates;
+        const dateD = new Date(daily);
+        const dateF = new Date(featured);
+        const dateSchedule = ((dateD > dateF) ? dateD : dateF);
+        const safeTime = 5 * 60 * 1000; // 5 more minutes, to be safe
+        const msTillUpdate = (dateSchedule.getTime() + safeTime) - Date.now();
+
+        logMsg("Update is scheduled in (ms): " + msTillUpdate);
+
+        setTimeout(() => {
+            logMsg("Scheduled update started!");
+            updateData();
+            updateSchedule();
+        }, msTillUpdate);
     }
 
     function formatItems(items) {
@@ -222,6 +268,10 @@ registerPlugin({ // AUTO REFRESH
 
     function getCacheFix() {
         return `&${Math.floor(Date.now()/1000)}`;
+    }
+
+    function checkRefresh() {
+
     }
 
     function httpRequest(params) {
