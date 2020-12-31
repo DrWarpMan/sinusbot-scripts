@@ -165,7 +165,7 @@ registerPlugin({
     function createChannel({ client, toChannel }) {
         if (toChannel.id() == joinChannelID) {
             try {
-                if (hasChannel(client)) return client.chat(MSG_CANT_CREATE_ALREADYHAS); // move instead?
+                if (hasChannel(client)) return client.moveTo(getChannel(client)); //client.chat(MSG_CANT_CREATE_ALREADYHAS);
                 if (!hasPermission(client)) return client.chat(MSG_CANT_CREATE_NOPERM);
 
                 const parentChannel = backend.getChannelByID(parentChannelID);
@@ -173,7 +173,7 @@ registerPlugin({
                 if (!parentChannel) throw new Error("Parent channel not found, invalid ID?");
 
                 const newChannelName = CHANNELNAME.replace("%nick%", client.nick()).substring(0, 40);
-                if (channelNameExists(newChannelName, parentChannel.id())) return client.chat("Please, change your nickname!");
+                if (channelNameExists(newChannelName, parentChannel.id())) return client.chat("Please, change your nickname to create new channel!");
 
                 const newChannelParams = {
                     "name": newChannelName,
@@ -264,6 +264,13 @@ registerPlugin({
         if (channelID !== 0 && !channel) store.unset(uid);
 
         return !!channel;
+    }
+
+    function getChannel(client) {
+        const channelID = store.get(client.uid()) || 0;
+        const channel = backend.getChannelByID(channelID);
+        if (!channel) throw new Error("Error while getting client's channel!");
+        return channel;
     }
 
     function channelNameExists(channelName, parentID) {
