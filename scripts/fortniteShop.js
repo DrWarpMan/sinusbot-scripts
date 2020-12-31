@@ -23,9 +23,9 @@ registerPlugin({
     }, {
         name: "interval",
         type: "number",
-        title: "Update interval (minutes):",
-        default: 5,
-        placeholder: "5"
+        title: "Update interval (minutes) [Set to 0 if you don't have problems with item updates]:",
+        default: 0,
+        placeholder: "0"
     }, {
         name: "channels",
         type: "array",
@@ -36,23 +36,9 @@ registerPlugin({
             type: "string",
             title: "ID:"
         }, {
-            name: "imgSize",
-            type: "number",
-            title: "Size of images (x * x) [Default: 64]:",
-            placeholder: "64"
-        }, {
-            name: "imgFull",
-            type: "checkbox",
-            title: "Use full background => with name and price?"
-        }, {
-            name: "columns",
-            type: "number",
-            title: "Number of columns (images per line) (use 0 for auto) [Default: 3]:",
-            placeholder: "3"
-        }, {
             name: "description",
             type: "multiline",
-            title: "Description [Placeholders: %daily%, %featured%, %upcoming%]:"
+            title: "Description [Placeholders: %TYPE-SIZE-IMGTYPE-COLUMNS%] (documented on the forums):"
         }]
     }]
 }, (_, config, { name, version, author }) => {
@@ -64,9 +50,13 @@ registerPlugin({
 
     const { apiKey, interval, channels, logEnabled } = config;
 
+    // Update on connection
+    if (backend.isConnected()) updateData();
     event.on("connect", updateData);
-    setInterval(updateData, (interval || 5) * 60 * 1000);
+    // Schedule next update
     updateSchedule();
+    // Auto update if needed
+    if (interval) setInterval(updateData, interval * 60 * 1000);
 
     async function updateData() {
         if (!backend.isConnected()) return;
@@ -79,19 +69,49 @@ registerPlugin({
             return logMsg("Error while receiving items..");
 
         channels.forEach(channelData => {
-            const { id, imgSize, imgFull, columns } = channelData;
+            const { id } = channelData;
             let { description } = channelData;
 
             const channel = backend.getChannelByID(id);
 
             if (channel) {
-                if (description) {
-                    const imgType = (imgFull) ? "full" : "noinfo";
+                if (description && description.length > 0) {
+                    const regexp = new RegExp(/%(?<itemType>daily|featured|upcoming)-(?<size>\d+)-(?<imgType>full|noinfo)-(?<columns>\d)%/, "gi");
+                    const matches = [ /*...description.matchAll(regexp) ---> ES6 :( */ ];
 
-                    description = description
-                        .replace("%daily%", itemsDesc(dailyItems, columns, imgSize, imgType))
-                        .replace("%featured%", itemsDesc(featuredItems, columns, imgSize, imgType))
-                        .replace("%upcoming%", itemsDesc(upcomingItems, columns, imgSize, imgType));
+                    let m;
+                    while (m = regexp.exec(description))
+                        matches.push(m);
+
+                    matches.forEach(match => {
+                        const fullMatch = match[0];
+                        //const { itemType, size, imgType, columns } = match.groups; ---> ES6 :(
+                        const itemType = match[1];
+                        const size = match[2];
+                        const imgType = match[3];
+                        const columns = match[4];
+
+                        let items = [];
+
+                        switch (itemType) {
+                            case "daily":
+                                items = dailyItems;
+                                break;
+                            case "featured":
+                                items = featuredItems;
+                                break;
+                            case "upcoming":
+                                items = upcomingItems;
+                                break;
+                            default:
+                                throw new Error("Invalid item type!");
+                        }
+
+                        description = description.replace(fullMatch, itemsDesc(items, size, imgType, columns));
+                    });
+
+                    if (description.length > 8192)
+                        logMsg(`Channel (ID: ${id}) description is too long (${description.length})!`);
 
                     channel.setDescription(description);
                 } else logMsg("Channel description empty!");
@@ -187,7 +207,8 @@ registerPlugin({
         } catch (err) {
             console.log(err);
             engine.log(err.toString());
-            return false;
+            setTimeout(updateSchedule, 10 * 1000); // log error and try again..
+            return;
         }
 
         if (!endingDates) return logMsg("Error, while scheduling data update!");
@@ -196,7 +217,7 @@ registerPlugin({
         const dateD = new Date(daily);
         const dateF = new Date(featured);
         const dateSchedule = ((dateD > dateF) ? dateD : dateF);
-        const safeTime = 5 * 60 * 1000; // 5 more minutes, to be safe
+        const safeTime = 3 * 60 * 1000; // wait 3 more minutes, to be safe
         const msTillUpdate = (dateSchedule.getTime() + safeTime) - Date.now();
 
         logMsg("Update is scheduled in (ms): " + msTillUpdate);
@@ -219,11 +240,11 @@ registerPlugin({
     }
 
     function getImg(item) {
-        const regex = new RegExp(/https:\/\/media.fortniteapi.io\/images\/(.*?)\/.*$/);
+        const regex = new RegExp(/https:\/\/media.fortniteapi.io\/images\/(?<id>.*?)\/.*$/);
         const match = (item.icon || item.images.background || item.images.featured).match(regex);
 
         if (match) {
-            const id = match[1];
+            const id = match[1]; // match.groups.id; ---> ES6 :(
             return {
                 "full": `https://media.fortniteapi.io/images/${id}/background_full.en.png`,
                 "noinfo": `https://media.fortniteapi.io/images/${id}/background.png`
@@ -241,37 +262,38 @@ registerPlugin({
         }, []);
     }
 
-    function itemsDesc(items, columns, imgSize, imgType) {
-        const cacheFix = (imgType === "full") ? getCacheFix() : "";
-        let desc = "";
+    function itemsDesc(items, imgSize, imgType, columns) {
+        /* Parsing */
 
-        if (columns == 0) {
-            items.forEach(({ img }) => desc += `[img]${img[imgType] + "?width=" + imgSize + cacheFix}[/img]`);
+        imgSize = parseInt(imgSize);
+        columns = parseInt(columns);
+        imgType = imgType.toLowerCase();
+
+        /* Description */
+
+        let itemsDesc = "";
+
+        if (columns === 0) {
+            items.forEach(({ img }) => itemsDesc += "[img]" + img[imgType] + "?width=" + imgSize + "[/img]");
         } else {
             const itemRows = arrSplitBy(items, columns);
 
             itemRows.forEach(itemRow => {
-                desc += "[tr]";
+                itemsDesc += "[tr]";
+
                 itemRow.forEach(({ img }) => {
-                    desc += "[td]";
-                    desc += `[img]${img[imgType] + "?width=" + imgSize + cacheFix}[/img]`;
-                    desc += "[/td]";
+                    itemsDesc += "[td]";
+                    itemsDesc += "[img]" + img[imgType] + "?width=" + imgSize + "[/img]";
+                    itemsDesc += "[/td]";
                 });
-                desc += "[/tr]";
+
+                itemsDesc += "[/tr]";
             });
 
-            desc = "[table]" + desc + "[/table]";
+            itemsDesc = "[table]" + itemsDesc + "[/table]";
         }
 
-        return desc;
-    }
-
-    function getCacheFix() {
-        return `&${Math.floor(Date.now()/1000)}`;
-    }
-
-    function checkRefresh() {
-
+        return itemsDesc;
     }
 
     function httpRequest(params) {
