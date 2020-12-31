@@ -1,7 +1,7 @@
 registerPlugin({
     name: "Fortnite Shop [fortniteapi.io]",
     version: "1.0.0",
-    description: "Fortnite Shop in TeamSpeak channel!",
+    description: "Show Fortnite Shop & more in a channel description",
     author: "DrWarpMan <drwarpman@gmail.com>",
     backends: ["ts3"],
     engine: ">= 1.0",
@@ -23,9 +23,9 @@ registerPlugin({
     }, {
         name: "interval",
         type: "number",
-        title: "Update interval (minutes) [Set to 0 if you don't have problems with item updates]:",
-        default: 0,
-        placeholder: "0"
+        title: "Update interval (minutes) [Set to 0 if you aren't using upcoming items]:",
+        default: 60,
+        placeholder: "60"
     }, {
         name: "channels",
         type: "array",
@@ -38,7 +38,7 @@ registerPlugin({
         }, {
             name: "description",
             type: "multiline",
-            title: "Description [Placeholders: %TYPE-SIZE-IMGTYPE-COLUMNS%] (documented on the forums):"
+            title: "Description [Placeholders: %ITEMTYPE-IMGSIZE-IMGTYPE-COLUMNS%] (documented on the forums):"
         }]
     }]
 }, (_, config, { name, version, author }) => {
