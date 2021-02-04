@@ -55,6 +55,17 @@ registerPlugin({
         placeholder: "69",
         indent: 3
     }, {
+        name: "extraVipParentChannelID",
+        type: "number",
+        title: "Extra-VIP Parent Channel ID:",
+        placeholder: "69"
+    }, {
+        name: "extraVipGroupID",
+        type: "number",
+        title: "Extra-VIP Group ID:",
+        placeholder: "69",
+        indent: 3
+    }, {
         name: "channelLast",
         type: "checkbox",
         title: "Put channel on the last position instead of on the top?",
@@ -80,7 +91,7 @@ registerPlugin({
     const store = require("store");
     const engine = require("engine");
 
-    const { joinChannelID, parentChannelID, allowedGroupIDs, channelGroupID, makeBlacklist, channelLast, vipGroupID, vipParentChannelID, logEnabled } = config;
+    const { joinChannelID, parentChannelID, allowedGroupIDs, channelGroupID, makeBlacklist, channelLast, vipGroupID, vipParentChannelID, extraVipGroupID, extraVipParentChannelID, logEnabled } = config;
 
     let { tempTime } = config;
 
@@ -151,11 +162,11 @@ registerPlugin({
     }
 
     function sgAdded({ client, serverGroup }) {
-        if (serverGroup.id() == vipGroupID) checkVIP(client, "has");
+        if (serverGroup.id() == vipGroupID || serverGroup.id() == extraVipGroupID) checkVIP(client);
     }
 
     function sgRemoved({ client, serverGroup }) {
-        if (serverGroup.id() == vipGroupID) checkVIP(client, "hasnot");
+        if (serverGroup.id() == vipGroupID || serverGroup.id() == extraVipGroupID) checkVIP(client);
     }
 
     /**
@@ -214,29 +225,40 @@ registerPlugin({
      * VIP CHANNEL
      */
 
-    function checkVIP(client, force = null) {
-        if (!(vipGroupID && vipParentChannelID)) return logMsg("ERROR: Invalid VIP settings..");
-
+    function checkVIP(client) {
         if (hasChannel(client)) {
-            const hasVIP = (force != null) ? ((force === "has") ? true : false) : client.getServerGroups().map(g => g.id()).some(gID => gID == vipGroupID);
+            const clientGroups = client.getServerGroups().map(g => g.id());
+            const vipType = (clientGroups.some(gID => gID == (extraVipGroupID || 0))) ? "extra" : ((clientGroups.some(gID => gID == (vipGroupID || 0))) ? "vip" : "none");
             const channel = backend.getChannelByID(store.get(client.uid()));
 
-            if (hasVIP) {
-                if (channel.parent().id() != vipParentChannelID) {
-                    const vipParentChannel = backend.getChannelByID(vipParentChannelID);
+            const parentID = channel.parent().id();
 
-                    if (vipParentChannel)
-                        channel.moveTo(vipParentChannelID, (channelLast) ? null : 0);
-                    else logMsg("ERROR: No VIP parent channel found!");
-                }
-            } else {
-                if (channel.parent().id() == vipParentChannelID) {
-                    const parentChannel = backend.getChannelByID(parentChannelID);
+            switch (vipType) {
+                case "extra":
+                    if (parentID != extraVipParentChannelID) {
+                        const extraVipParentChannel = backend.getChannelByID(extraVipParentChannelID);
 
-                    if (parentChannel)
-                        channel.moveTo(parentChannel, (channelLast) ? null : 0);
-                    else logMsg("ERROR: No default parent channel found!");
-                }
+                        if (extraVipParentChannel)
+                            channel.moveTo(extraVipParentChannelID, (channelLast) ? null : 0);
+                        else logMsg("ERROR: No Extra-VIP parent channel found!");
+                    }
+                    break;
+                case "vip":
+                    if (parentID != vipParentChannelID) {
+                        const vipParentChannel = backend.getChannelByID(vipParentChannelID);
+
+                        if (vipParentChannel)
+                            channel.moveTo(vipParentChannelID, (channelLast) ? null : 0);
+                        else logMsg("ERROR: No VIP parent channel found!");
+                    }
+                default:
+                    if (parentID != parentChannelID) {
+                        const parentChannel = backend.getChannelByID(parentChannelID);
+
+                        if (parentChannel)
+                            channel.moveTo(parentChannelID, (channelLast) ? null : 0);
+                        else logMsg("ERROR: No default parent channel found!");
+                    }
             }
         }
     }
