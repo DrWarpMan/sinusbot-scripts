@@ -43,8 +43,6 @@ registerPlugin({
 
     if (kickMessage.length > 80) logMsg("WARN: Kick message too long!");
 
-    console.log(regexRules);
-
     regexRules = (regexRules || "").split("\n");
 
     regexRules = regexRules.map(rule => {
