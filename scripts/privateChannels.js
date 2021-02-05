@@ -73,40 +73,91 @@ registerPlugin({
     }, {
         name: "tempTime",
         type: "number",
-        title: "Temporary channel time (max. 31536000, in seconds) (temp. channels will get deleted on server restart) [Default: 0 (permanent)]:",
+        title: "Temporary channel time (max. 31536000, in seconds) [Default: 0 (permanent)]:",
         placeholder: "0",
         default: 0
-    }, {
-        name: "adminGroupIDs",
-        type: "strings",
-        title: "List of admin group IDs allowed to use command(s) [<main_cmd> <task>]:",
-        default: []
     }]
 }, (_, config, { name, version, author }) => {
-
-    // temporary solution? Different than TS func
 
     const backend = require("backend");
     const event = require("event");
     const store = require("store");
     const engine = require("engine");
 
+    // Temporary channels solution? Once in a day, set cronjob to 6 00
+
+    engine.log(`\n[Script] "${name}" [Version] "${version}" [Author] "${author}"`);
+
     const { joinChannelID, parentChannelID, allowedGroupIDs, channelGroupID, makeBlacklist, channelLast, vipGroupID, vipParentChannelID, extraVipGroupID, extraVipParentChannelID, logEnabled } = config;
 
     let { tempTime } = config;
 
+    if (!isInt(tempTime) || (tempTime !== 0 && !(0 < tempTime && tempTime <= 31536000))) {
+        tempTime = 0;
+        logMsg("Invalid channel temporary time, using permanent.");
+    }
+
+    const COMMAND_UPGRADE = "!upgrade";
+
     const CHANNELNAME = "%nick%'s channel"; // Default: %nick%'s channel
-    const MAIN_COMMAND = "!pc";
 
-    const TASK_TEMPUPDATE = "tempupdate";
-
-    const MSG_CANT_CREATE_ALREADYHAS = "You already have a channel!";
+    //const MSG_CANT_CREATE_ALREADYHAS = "You already have a channel!";
     const MSG_CANT_CREATE_NOPERM = "You are not permitted to create a new channel!";
     const MSG_ERROR = "Error ocurred, contact an administrator!";
 
-    if (!isInt(tempTime) || (tempTime !== 0 && !(0 < tempTime && tempTime < 31536000))) {
-        tempTime = 0;
-        logMsg("Invalid channel temporary time, using permanent.");
+    /**
+     * TEMPORARY CHECK
+     */
+
+    if (tempTime !== 0) temporaryCheck();
+    else logMsg("Temporary cleaner disabled!");
+
+    function sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    function temporaryCheck() {
+        const checkDate = new Date();
+        checkDate.setHours(24, 0, 0, 0); // every midnight
+        const msUntilThen = checkDate.getTime() - Date.now();
+        setTimeout(temporaryCleaner, msUntilThen);
+        logMsg(`Temporary cleaning scheduled at ${checkDate}`);
+    }
+
+    async function temporaryCleaner() {
+        if (backend.isConnected()) {
+            logMsg(`Temporary cleaning started!`);
+            let removedCount = 0;
+
+            for (const uid of store.getKeys()) {
+                const channelID = store.get(uid);
+                const channel = backend.getChannelByID(channelID);
+
+                logMsg(`Temp-checking channel -> ${channelID} (${uid})`);
+
+                if (channel) {
+                    if (channel.getClientCount() <= 0) {
+                        channel.update({ permanent: false, deleteDelay: tempTime });
+
+                        await sleep(500); // a little break
+
+                        if (backend.getChannelByID(channelID)) {
+                            channel.update({ permanent: true });
+                            logMsg(`--- Channel persisting!`);
+                        } else {
+                            removedCount++;
+                            logMsg(`--- Channel removed!`);
+                        }
+                    } else logMsg(`--- Channel not empty, ignoring!`);
+                } else {
+                    store.unset(uid);
+                    logMsg(`--- Found deleted channel, removing from DB | ${channelID} ${uid}`);
+                }
+            }
+            logMsg(`Temporary cleaning finished, removed ${removedCount} channels!`);
+        } else logMsg(`Backend not connected, scheduling again..`);
+
+        temporaryCheck();
     }
 
     /**
@@ -115,58 +166,22 @@ registerPlugin({
 
     event.on("chat", chat);
     event.on("clientMove", clientMove);
-    event.on("serverGroupAdded", sgAdded);
-    event.on("serverGroupRemoved", sgRemoved);
 
     function chat({ text, client }) {
         if (client.isSelf()) return;
 
         const msg = text.split(" ").filter(i => /\s/.test(i) === false && i.length > 0);
-        const command = msg[0];
-        const args = msg.slice(1);
+        const command = msg[0].toLowerCase();
+        //const args = msg.slice(1);
 
-        if (command !== MAIN_COMMAND) return;
-
-        const task = args[0];
-
-        switch (task) {
-            case TASK_TEMPUPDATE:
-                tempUpdate();
-                break;
-            default:
-                return client.chat("Invalid task!");
-        }
-
-        // TASKS
-
-        const tempUpdate = () => {
-            store.getKeys().forEach(keyName => {
-                const channel = backend.getChannelByID(store.get(keyName));
-
-                if (channel) {
-                    channelParams = { permanent: (tempTime > 0) ? false : true, deleteDelay: tempTime };
-                    channel.update(channelParams)
-                }
-            });
-        };
+        if (command === COMMAND_UPGRADE)
+            checkVIP(client);
     }
 
     function clientMove(params) {
         if (params.client.isSelf()) return;
         if (!params.toChannel) return;
-
         createChannel(params);
-
-        if (!params.fromChannel && params.toChannel)
-            checkVIP(params.client);
-    }
-
-    function sgAdded({ client, serverGroup }) {
-        if (serverGroup.id() == vipGroupID || serverGroup.id() == extraVipGroupID) checkVIP(client);
-    }
-
-    function sgRemoved({ client, serverGroup }) {
-        if (serverGroup.id() == vipGroupID || serverGroup.id() == extraVipGroupID) checkVIP(client);
     }
 
     /**
@@ -199,11 +214,6 @@ registerPlugin({
 
                 if (!createdChannel) throw new Error("Channel could not be created!");
 
-                if (tempTime > 0) {
-                    tempChannelParams = { permanent: false, deleteDelay: tempTime }
-                    createdChannel.update(tempChannelParams)
-                }
-
                 client.moveTo(createdChannel);
 
                 const channelGroup = backend.getChannelGroupByID(channelGroupID);
@@ -212,8 +222,6 @@ registerPlugin({
                 createdChannel.setChannelGroup(client, channelGroup);
 
                 saveChannel(client, createdChannel);
-
-                checkVIP(client);
             } catch (err) {
                 client.chat(MSG_ERROR);
                 logMsg(`Error: ${err}`);
@@ -230,7 +238,6 @@ registerPlugin({
             const clientGroups = client.getServerGroups().map(g => g.id());
             const vipType = (clientGroups.some(gID => gID == (extraVipGroupID || 0))) ? "extra" : ((clientGroups.some(gID => gID == (vipGroupID || 0))) ? "vip" : "none");
             const channel = backend.getChannelByID(store.get(client.uid()));
-
             const parentID = channel.parent().id();
 
             switch (vipType) {
@@ -238,27 +245,30 @@ registerPlugin({
                     if (parentID != extraVipParentChannelID) {
                         const extraVipParentChannel = backend.getChannelByID(extraVipParentChannelID);
 
-                        if (extraVipParentChannel)
+                        if (extraVipParentChannel) {
                             channel.moveTo(extraVipParentChannelID, (channelLast) ? null : 0);
-                        else logMsg("ERROR: No Extra-VIP parent channel found!");
-                    }
+                            client.chat("Channel upgraded!");
+                        } else logMsg("ERROR: No Extra-VIP parent channel found!");
+                    } else client.chat("Already at the maximum upgrade level!");
                     break;
                 case "vip":
                     if (parentID != vipParentChannelID) {
                         const vipParentChannel = backend.getChannelByID(vipParentChannelID);
 
-                        if (vipParentChannel)
+                        if (vipParentChannel) {
                             channel.moveTo(vipParentChannelID, (channelLast) ? null : 0);
-                        else logMsg("ERROR: No VIP parent channel found!");
-                    }
+                            client.chat("Channel upgraded!");
+                        } else logMsg("ERROR: No VIP parent channel found!");
+                    } else client.chat("Already at the maximum upgrade level!");
+                    break;
                 default:
                     if (parentID != parentChannelID) {
                         const parentChannel = backend.getChannelByID(parentChannelID);
-
-                        if (parentChannel)
+                        if (parentChannel) {
                             channel.moveTo(parentChannelID, (channelLast) ? null : 0);
-                        else logMsg("ERROR: No default parent channel found!");
-                    }
+                            client.chat("Channel upgraded!");
+                        } else logMsg("ERROR: No default parent channel found!");
+                    } else client.chat("Already at the maximum upgrade level!");
             }
         }
     }
@@ -310,7 +320,4 @@ registerPlugin({
     function logMsg(msg) {
         return !!logEnabled && engine.log(msg);
     }
-
-    // SCRIPT LOADED SUCCCESFULLY
-    engine.log(`\n[Script] "${name}" [Version] "${version}" [Author] "${author}"`);
 });
