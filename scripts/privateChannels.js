@@ -33,16 +33,16 @@ registerPlugin({
         default: false,
         indent: 3
     }, {
-        name: "parentChannelID",
-        type: "number",
-        title: "Parent Channel ID:",
-        placeholder: "69"
-    }, {
         name: "channelGroupID",
         type: "number",
         title: "Channel Group ID:",
         placeholder: "69",
         indent: 3
+    }, {
+        name: "defaultParentChannelID",
+        type: "number",
+        title: "Default Parent Channel ID:",
+        placeholder: "69"
     }, {
         name: "vipParentChannelID",
         type: "number",
@@ -86,7 +86,7 @@ registerPlugin({
 
     engine.log(`\n[Script] "${name}" [Version] "${version}" [Author] "${author}"`);
 
-    const { joinChannelID, parentChannelID, allowedGroupIDs, channelGroupID, makeBlacklist, channelLast, vipGroupID, vipParentChannelID, extraVipGroupID, extraVipParentChannelID, logEnabled } = config;
+    const { joinChannelID, defaultParentChannelID, allowedGroupIDs, channelGroupID, makeBlacklist, channelLast, vipGroupID, vipParentChannelID, extraVipGroupID, extraVipParentChannelID, logEnabled } = config;
 
     let { tempTime } = config;
 
@@ -164,6 +164,12 @@ registerPlugin({
 
     event.on("chat", chat);
     event.on("clientMove", clientMove);
+    event.on("serverGroupAdded", ({ client, serverGroup }) => {
+        if ([vipGroupID, extraVipGroupID].some(gID => gID == serverGroup.id())) checkVIP(client);
+    });
+    event.on("serverGroupRemoved", ({ client, serverGroup }) => {
+        if ([vipGroupID, extraVipGroupID].some(gID => gID == serverGroup.id())) checkVIP(client);
+    });
 
     function chat({ text, client }) {
         if (client.isSelf()) return;
@@ -192,7 +198,7 @@ registerPlugin({
                 if (hasChannel(client)) return client.moveTo(getChannel(client)); //client.chat(MSG_CANT_CREATE_ALREADYHAS);
                 if (!hasPermission(client)) return client.chat(MSG_CANT_CREATE_NOPERM);
 
-                const parentChannel = backend.getChannelByID(parentChannelID);
+                const parentChannel = backend.getChannelByID(defaultParentChannelID);
 
                 if (!parentChannel) throw new Error("Parent channel not found, invalid ID?");
 
@@ -220,6 +226,10 @@ registerPlugin({
                 createdChannel.setChannelGroup(client, channelGroup);
 
                 saveChannel(client, createdChannel);
+
+                client.chat("Channel created!");
+
+                checkVIP(client);
             } catch (err) {
                 client.chat(MSG_ERROR);
                 logMsg(`Error: ${err}`);
@@ -236,38 +246,29 @@ registerPlugin({
             const clientGroups = client.getServerGroups().map(g => g.id());
             const vipType = (clientGroups.some(gID => gID == (extraVipGroupID || 0))) ? "extra" : ((clientGroups.some(gID => gID == (vipGroupID || 0))) ? "vip" : "none");
             const channel = backend.getChannelByID(store.get(client.uid()));
-            const parentID = channel.parent().id();
+            const currentParentID = channel.parent().id();
+
+            let targetParentID = null;
 
             switch (vipType) {
                 case "extra":
-                    if (parentID != extraVipParentChannelID) {
-                        const extraVipParentChannel = backend.getChannelByID(extraVipParentChannelID);
-
-                        if (extraVipParentChannel) {
-                            channel.moveTo(extraVipParentChannelID, (channelLast) ? null : 0);
-                            client.chat("Channel upgraded!");
-                        } else logMsg("ERROR: No Extra-VIP parent channel found!");
-                    } else client.chat("Already at the maximum upgrade level!");
+                    targetParentID = extraVipParentChannelID;
                     break;
                 case "vip":
-                    if (parentID != vipParentChannelID) {
-                        const vipParentChannel = backend.getChannelByID(vipParentChannelID);
-
-                        if (vipParentChannel) {
-                            channel.moveTo(vipParentChannelID, (channelLast) ? null : 0);
-                            client.chat("Channel upgraded!");
-                        } else logMsg("ERROR: No VIP parent channel found!");
-                    } else client.chat("Already at the maximum upgrade level!");
+                    targetParentID = vipParentChannelID;
                     break;
                 default:
-                    if (parentID != parentChannelID) {
-                        const parentChannel = backend.getChannelByID(parentChannelID);
-                        if (parentChannel) {
-                            channel.moveTo(parentChannelID, (channelLast) ? null : 0);
-                            client.chat("Channel upgraded!");
-                        } else logMsg("ERROR: No default parent channel found!");
-                    } else client.chat("Already at the maximum upgrade level!");
+                    targetParentID = defaultParentChannelID;
             }
+
+            if (currentParentID != targetParentID) {
+                const targetParentChannel = backend.getChannelByID(targetParentID);
+
+                if (targetParentChannel) {
+                    channel.moveTo(targetParentID, (channelLast) ? null : 0);
+                    client.chat("Channel upgraded!");
+                } else logMsg("ERROR: No parent channel found!");
+            } else client.chat("Already at the maximum upgrade level!");
         }
     }
 
