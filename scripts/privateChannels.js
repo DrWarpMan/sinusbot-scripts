@@ -84,8 +84,6 @@ registerPlugin({
     const store = require("store");
     const engine = require("engine");
 
-    // Temporary channels solution? Once in a day, set cronjob to 6 00
-
     engine.log(`\n[Script] "${name}" [Version] "${version}" [Author] "${author}"`);
 
     const { joinChannelID, parentChannelID, allowedGroupIDs, channelGroupID, makeBlacklist, channelLast, vipGroupID, vipParentChannelID, extraVipGroupID, extraVipParentChannelID, logEnabled } = config;
