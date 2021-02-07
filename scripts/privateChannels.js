@@ -49,10 +49,10 @@ registerPlugin({
         title: "VIP Parent Channel ID:",
         placeholder: "69"
     }, {
-        name: "vipGroupID",
-        type: "number",
-        title: "VIP Group ID:",
-        placeholder: "69",
+        name: "vipGroupIDs",
+        type: "strings",
+        title: "VIP Group ID(s):",
+        default: [],
         indent: 3
     }, {
         name: "extraVipParentChannelID",
@@ -60,10 +60,10 @@ registerPlugin({
         title: "Extra-VIP Parent Channel ID:",
         placeholder: "69"
     }, {
-        name: "extraVipGroupID",
-        type: "number",
-        title: "Extra-VIP Group ID:",
-        placeholder: "69",
+        name: "extraVipGroupIDs",
+        type: "strings",
+        title: "Extra-VIP Group ID(s):",
+        default: [],
         indent: 3
     }, {
         name: "channelLast",
@@ -92,7 +92,7 @@ registerPlugin({
 
     engine.log(`\n[Script] "${name}" [Version] "${version}" [Author] "${author}"`);
 
-    const { joinChannelID, defaultParentChannelID, allowedGroupIDs, channelGroupID, makeBlacklist, channelLast, vipGroupID, vipParentChannelID, extraVipGroupID, extraVipParentChannelID, logEnabled } = config;
+    const { joinChannelID, defaultParentChannelID, allowedGroupIDs, channelGroupID, makeBlacklist, channelLast, vipGroupIDs, vipParentChannelID, extraVipGroupIDs, extraVipParentChannelID, logEnabled } = config;
 
     let { tempTime, checkTime } = config;
 
@@ -183,10 +183,10 @@ registerPlugin({
     event.on("chat", chat);
     event.on("clientMove", clientMove);
     event.on("serverGroupAdded", ({ client, serverGroup }) => {
-        if ([vipGroupID, extraVipGroupID].some(gID => gID == serverGroup.id())) checkVIP(client);
+        if ([...vipGroupIDs, ...extraVipGroupIDs].some(gID => gID === serverGroup.id())) checkVIP(client);
     });
     event.on("serverGroupRemoved", ({ client, serverGroup }) => {
-        if ([vipGroupID, extraVipGroupID].some(gID => gID == serverGroup.id())) checkVIP(client);
+        if ([...vipGroupIDs, ...extraVipGroupIDs].some(gID => gID === serverGroup.id())) checkVIP(client);
     });
 
     function chat({ text, client }) {
@@ -205,7 +205,7 @@ registerPlugin({
         if (!toChannel) return;
 
         if (toChannel.id() == joinChannelID)
-            createChannel(params);
+            createChannel(client);
         else if (!fromChannel)
             checkVIP(client);
     }
@@ -264,7 +264,8 @@ registerPlugin({
     function checkVIP(client) {
         if (hasChannel(client)) {
             const clientGroups = client.getServerGroups().map(g => g.id());
-            const vipType = (clientGroups.some(gID => gID == (extraVipGroupID || 0))) ? "extra" : ((clientGroups.some(gID => gID == (vipGroupID || 0))) ? "vip" : "none");
+            const vipType = (clientGroups.some(gID => (extraVipGroupIDs || []).includes(gID))) ? "extra" :
+                ((clientGroups.some(gID => (vipGroupIDs || []).includes(gID))) ? "vip" : "none");
             const channel = backend.getChannelByID(store.get(client.uid()));
             const currentParentID = channel.parent().id();
 
