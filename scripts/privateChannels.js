@@ -76,6 +76,12 @@ registerPlugin({
         title: "Temporary channel time (max. 31536000, in seconds) [Default: 0 (permanent)]:",
         placeholder: "0",
         default: 0
+    }, {
+        name: "checkTime",
+        type: "number",
+        title: "Checking hour (0-23) [Default: \"3\" - which would mean, checking at 3AM]:",
+        placeholder: "3",
+        default: 3
     }]
 }, (_, config, { name, version, author }) => {
 
@@ -88,11 +94,16 @@ registerPlugin({
 
     const { joinChannelID, defaultParentChannelID, allowedGroupIDs, channelGroupID, makeBlacklist, channelLast, vipGroupID, vipParentChannelID, extraVipGroupID, extraVipParentChannelID, logEnabled } = config;
 
-    let { tempTime } = config;
+    let { tempTime, checkTime } = config;
 
     if (!isInt(tempTime) || (tempTime !== 0 && !(0 < tempTime && tempTime <= 31536000))) {
         tempTime = 0;
         logMsg("Invalid channel temporary time, using permanent.");
+    }
+
+    if (!isInt(checkTime) || (!(0 <= checkTime && checkTime <= 23))) {
+        checkTime = 0;
+        logMsg("Invalid channel check time, using 3 (AM).");
     }
 
     const COMMAND_UPGRADE = "!upgrade";
@@ -116,7 +127,14 @@ registerPlugin({
 
     function temporaryCheck() {
         const checkDate = new Date();
-        checkDate.setHours(24, 0, 0, 0); // every midnight
+
+        if (checkDate.getHours() < checkTime)
+            checkDate.setHours(checkTime, 0, 0, 0);
+        else {
+            checkDate.setDate(checkDate.getDate() + 1);
+            checkDate.setHours(checkTime, 0, 0, 0);
+        }
+
         const msUntilThen = checkDate.getTime() - Date.now();
         setTimeout(temporaryCleaner, msUntilThen);
         logMsg(`Temporary cleaning scheduled at ${checkDate}`);
@@ -182,58 +200,60 @@ registerPlugin({
             checkVIP(client);
     }
 
-    function clientMove(params) {
-        if (params.client.isSelf()) return;
-        if (!params.toChannel) return;
-        createChannel(params);
+    function clientMove({ client, toChannel, fromChannel }) {
+        if (client.isSelf()) return;
+        if (!toChannel) return;
+
+        if (toChannel.id() == joinChannelID)
+            createChannel(params);
+        else if (!fromChannel)
+            checkVIP(client);
     }
 
     /**
      * CHANNEL CREATION
      */
 
-    function createChannel({ client, toChannel }) {
-        if (toChannel.id() == joinChannelID) {
-            try {
-                if (hasChannel(client)) return client.moveTo(getChannel(client)); //client.chat(MSG_CANT_CREATE_ALREADYHAS);
-                if (!hasPermission(client)) return client.chat(MSG_CANT_CREATE_NOPERM);
+    function createChannel(client) {
+        try {
+            if (hasChannel(client)) return client.moveTo(getChannel(client)); //client.chat(MSG_CANT_CREATE_ALREADYHAS);
+            if (!hasPermission(client)) return client.chat(MSG_CANT_CREATE_NOPERM);
 
-                const parentChannel = backend.getChannelByID(defaultParentChannelID);
+            const parentChannel = backend.getChannelByID(defaultParentChannelID);
 
-                if (!parentChannel) throw new Error("Parent channel not found, invalid ID?");
+            if (!parentChannel) throw new Error("Parent channel not found, invalid ID?");
 
-                const newChannelName = CHANNELNAME.replace("%nick%", client.nick()).substring(0, 40);
-                if (channelNameExists(newChannelName, parentChannel.id())) return client.chat("Please, change your nickname to create new channel!");
+            const newChannelName = CHANNELNAME.replace("%nick%", client.nick()).substring(0, 40);
+            if (channelNameExists(newChannelName, parentChannel.id())) return client.chat("Please, change your nickname to create new channel!");
 
-                const newChannelParams = {
-                    "name": newChannelName,
-                    "parent": parentChannel.id(),
-                    "codec": 4, // Opus Voice
-                    "codecQuality": 10, // Maximum quality
-                    "position": (channelLast) ? null : 0,
-                    "permanent": true
-                }
-
-                const createdChannel = backend.createChannel(newChannelParams);
-
-                if (!createdChannel) throw new Error("Channel could not be created!");
-
-                client.moveTo(createdChannel);
-
-                const channelGroup = backend.getChannelGroupByID(channelGroupID);
-                if (!channelGroup) throw new Error("Channel group could not be found!");
-
-                createdChannel.setChannelGroup(client, channelGroup);
-
-                saveChannel(client, createdChannel);
-
-                client.chat("Channel created!");
-
-                checkVIP(client);
-            } catch (err) {
-                client.chat(MSG_ERROR);
-                logMsg(`Error: ${err}`);
+            const newChannelParams = {
+                "name": newChannelName,
+                "parent": parentChannel.id(),
+                "codec": 4, // Opus Voice
+                "codecQuality": 10, // Maximum quality
+                "position": (channelLast) ? null : 0,
+                "permanent": true
             }
+
+            const createdChannel = backend.createChannel(newChannelParams);
+
+            if (!createdChannel) throw new Error("Channel could not be created!");
+
+            client.moveTo(createdChannel);
+
+            const channelGroup = backend.getChannelGroupByID(channelGroupID);
+            if (!channelGroup) throw new Error("Channel group could not be found!");
+
+            createdChannel.setChannelGroup(client, channelGroup);
+
+            saveChannel(client, createdChannel);
+
+            client.chat("Channel created!");
+
+            checkVIP(client);
+        } catch (err) {
+            client.chat(MSG_ERROR);
+            logMsg(`Error: ${err}`);
         }
     }
 
@@ -266,9 +286,9 @@ registerPlugin({
 
                 if (targetParentChannel) {
                     channel.moveTo(targetParentID, (channelLast) ? null : 0);
-                    client.chat("Channel upgraded!");
+                    client.chat("Your channel upgrade level changed!");
                 } else logMsg("ERROR: No parent channel found!");
-            } else client.chat("Already at the maximum upgrade level!");
+            }
         }
     }
 
