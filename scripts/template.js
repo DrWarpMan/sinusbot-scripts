@@ -20,12 +20,9 @@ registerPlugin({
 
     const engine = require("engine");
 
-    const { logEnabled } = config;
+    engine.log(`\n[LOADING] Script: "${name}" Version: "${version}" Author: "${author}"`);
 
-    function logMsg(msg) {
-        return !!logEnabled && engine.log(msg);
-    }
+    const log = msg => !!config.logEnabled && engine.log(msg);
 
-    // SCRIPT LOADED SUCCCESFULLY
-    engine.log(`\n[Script] "${name}" [Version] "${version}" [Author] "${author}"`);
+    engine.log(`\n[SUCCESS] Script: "${name}" Version: "${version}" Author: "${author}"`);
 });
