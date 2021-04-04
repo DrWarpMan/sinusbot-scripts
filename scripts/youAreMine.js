@@ -72,14 +72,12 @@ registerPlugin({
                 rentMake(client);
                 break;
             case "playlist":
-                const playlistID = args[0] || false;
-                choosePlaylist(client, playlistID);
+                chooseMusic(client, "playlist", args[0]);
                 break;
             case "radio":
-                const radioName = args[0] || false;
-                chooseRadio(client, radioName);
+                chooseMusic(client, "radio", args[0]);
                 break;
-            case "othercmd3":
+            case "youtube":
                 break;
             default:
                 return; // no valid command
@@ -288,64 +286,53 @@ registerPlugin({
     /     MUSIC MANAGEMENT     /
     ***************************/
 
-    function choosePlaylist(client, playlistID) {
-        if (rentInstanceActive()) {
-            const owner = rentInstanceOwner();
+    function chooseMusic(client, type, identificator) {
+        if (!rentInstanceActive()) return;
 
-            if (owner && owner.equals(client)) {
-                if (!playlistID) // If no playlist specified
-                {
-                    log(`Listing playlist for the owner - ${client.nick()}`);
+        const owner = rentInstanceOwner();
+        if (!owner || !owner.equals(client)) return client.chat("You are not the owner!");
 
-                    const playlists = media.getPlaylists(); //.filter(p => p); // mby add filter
-                    const list = playlists.map(p => `[b]Playlist name:[/b] ${p.name()} [b]ID:[/b] [i]${p.id()}[/i]`);
-
-                    client.chat(`Playlists (${playlists.length}):\n${list.join("\n")}`);
-                } else {
-                    playlist = media.getPlaylistByID(playlistID);
-
-                    if (!playlist) return client.chat("Invalid playlist ID!");
-                    else {
-                        playlist.setActive();
-                        client.chat("Playlist changed!");
-                        log(`Owner changed playlist to ${playlist.name()}`)
-                    }
-                }
-            }
-        }
-    }
-
-    function chooseRadio(client, radioName) {
-        if (rentInstanceActive()) {
-            const owner = rentInstanceOwner();
-
-            if (owner && owner.equals(client)) {
-                if (!radioName) // If no playlist specified
-                {
+        switch (type) {
+            case "radio":
+                if (!identificator) {
+                    const radios = Object.keys(RADIOS).map(radioName => `[b]Radio name:[/b] ${radioName}`);
                     log(`Listing radios for the owner - ${client.nick()}`);
-
-                    const list = Object.keys(RADIOS).map(radioName => `[b]Radio name:[/b] ${radioName}`);
-
-                    client.chat(`Radios (${list.length}):\n${list.join("\n")}`);
+                    client.chat(`Radios (${radios.length}):\n${radios.join("\n")}`);
                 } else {
-                    const radioURL = RADIOS[radioName.toLowerCase()];
+                    const radio = RADIOS[identificator.toLowerCase()];
 
-                    if (!radioURL) return client.chat("Invalid radio name!");
-                    else {
-                        client.chat(`Loading [b]${radioName}[/b] radio..`);
+                    if (!!radio) {
+                        client.chat(`Loading [b]${identificator}[/b] radio..`);
 
-                        const success = !!media.playURL(radioURL);
+                        const success = !!media.playURL(radio);
 
                         if (success) {
-                            client.chat(`Radio [b]${radioName}[/b] succesfully started!`);
-                            log(`Owner changed radio to ${radioName.toLowerCase()}`)
+                            log(`Owner changed radio to ${identificator.toLowerCase()}`)
+                            client.chat(`Radio [b]${identificator}[/b] succesfully started!`);
                         } else {
-                            client.chat(`Error with the radio [b]${radioName}[/b], contact administrator!`);
-                            log(`Owner unsuccessfully tried changing radio to ${radioName.toLowerCase()}`);
+                            log(`Owner unsuccessfully tried changing radio to ${identificator.toLowerCase()}`);
+                            client.chat(`Error with the radio [b]${identificator}[/b], contact administrator!`);
                         }
-                    }
+                    } else client.chat("Invalid radio name!");
                 }
-            }
+                break;
+            case "playlist":
+                if (!identificator) {
+                    const playlists = media.getPlaylists() /*filter*/ .map(p => `[b]Playlist name:[/b] ${p.name()} [b]ID:[/b] [i]${p.id()}[/i]`);
+                    log(`Listing playlists for the owner - ${client.nick()}`);
+                    client.chat(`Playlists (${playlists.length}):\n${playlists.join("\n")}`);
+                } else {
+                    const playlist = media.getPlaylistByID(identificator);
+                    if (!!playlist /* if found */ ) {
+                        playlist.setActive();
+                        media.playlistPlayByID(playlist, 0);
+                        log(`Owner changing playlist to ${playlist.name()}`);
+                        client.chat("Playlist changed!");
+                    } else client.chat("Invalid playlist ID!");
+                }
+                break;
+            default:
+                console.error("Error, undefined music type!");
         }
     }
 
