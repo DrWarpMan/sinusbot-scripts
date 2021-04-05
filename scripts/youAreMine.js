@@ -331,6 +331,11 @@ registerPlugin({
                     } else client.chat("Invalid playlist ID!");
                 }
                 break;
+            case "youtube":
+                if (!identificator) client.chat(`You have to specify a Youtube URL to play first!`);
+                else {
+
+                }
             default:
                 console.error("Error, undefined music type!");
         }
