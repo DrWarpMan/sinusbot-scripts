@@ -47,9 +47,11 @@ registerPlugin({
     const KEY_COOLDOWN = "rentalcooldown";
     const RENT_CHECK_INTERVAL = 60 * 1000;
 
-    let BOT_UID = "";
+    let BOT_UID = (backend.isConnected()) ? backend.getBotClient().uid() : "";
 
     setInterval(rentRefreshBot, RENT_CHECK_INTERVAL);
+
+    media.stop();
 
     /***************************
     /     EVENTS               /
@@ -78,6 +80,7 @@ registerPlugin({
                 chooseMusic(client, "radio", args[0]);
                 break;
             case "youtube":
+                chooseMusic(client, "youtube", args[0]);
                 break;
             default:
                 return; // no valid command
@@ -332,10 +335,14 @@ registerPlugin({
                 }
                 break;
             case "youtube":
+<<<<<<< Updated upstream
                 if (!identificator) client.chat(`You have to specify a Youtube URL to play first!`);
                 else {
 
                 }
+=======
+                //if(!identificator)
+>>>>>>> Stashed changes
             default:
                 console.error("Error, undefined music type!");
         }
