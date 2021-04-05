@@ -335,14 +335,10 @@ registerPlugin({
                 }
                 break;
             case "youtube":
-<<<<<<< Updated upstream
                 if (!identificator) client.chat(`You have to specify a Youtube URL to play first!`);
                 else {
 
                 }
-=======
-                //if(!identificator)
->>>>>>> Stashed changes
             default:
                 console.error("Error, undefined music type!");
         }
