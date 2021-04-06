@@ -15,6 +15,55 @@ registerPlugin({
         type: "checkbox",
         title: "Check to enable detailed logs",
         default: false
+    }, {
+        name: "rentTime",
+        type: "number",
+        title: "How long can a bot be rented for? (in minutes):",
+        default: 120,
+        placeholder: "120"
+    }, {
+        name: "rentCooldown",
+        type: "number",
+        title: "How long should one wait between bot rents? (in minutes):",
+        default: 30,
+        placeholder: "30"
+    }, {
+        name: "rentDepo",
+        type: "number",
+        title: "Default channel for the bot:",
+        default: 0,
+        placeholder: "69"
+    }, {
+        name: "ignoreChannelIDs",
+        type: "strings",
+        title: "Ignore channel IDs:",
+        default: []
+    }, {
+        name: "groupIDs",
+        type: "strings",
+        title: "Group IDs (allowed to rent):",
+        default: []
+    }, {
+        name: "blacklist",
+        type: "checkbox",
+        title: "Should previously list of groups be a blacklist?",
+        default: false
+    }, {
+        name: "radios",
+        type: "array",
+        title: "Radios:",
+        default: [],
+        vars: [{
+                name: "radioName",
+                type: "string",
+                title: "Radio Name:"
+            },
+            {
+                name: "radioURL",
+                type: "string",
+                title: "Radio URL:"
+            }
+        ]
     }]
 }, (_, config, { name, version, author }) => {
 
@@ -28,12 +77,17 @@ registerPlugin({
     /     CONFIGURATION        /
     ***************************/
 
-    const RENT_TIME = 5 * 60 * 1000; // in minutes
-    const RENT_COOLDOWN = 1 * 60 * 1000; // in minutes
-    const RENT_DEFAULT_CHANNEL = "15"; // ID
-    const RADIOS = {
-        "chill": "https://listen.reyfm.de/chillout_128kbps.mp3"
-    }
+    const { rentTime, rentCooldown, rentDepo, ignoreChannelIDs, groupIDs, blacklist, radios } = config;
+
+    const RENT_TIME = (rentTime || 120) * 60 * 1000; // in minutes
+    const RENT_COOLDOWN = (rentCooldown || 120) * 60 * 1000; // in minutes
+    const RENT_DEFAULT_CHANNEL = (rentDepo || "0"); // ID
+    const IGNORE_CHANNELS = (ignoreChannelIDs || []);
+    const GROUP_IDS = (groupIDs || []);
+    const BL = blacklist || false;
+    const RADIOS = {};
+
+    (radios || []).forEach(({ radioName, radioURL }) => RADIOS[radioName.toLowerCase()] = radioURL);
 
     /***************************
     /     INIT                 /
@@ -47,17 +101,22 @@ registerPlugin({
     const KEY_COOLDOWN = "rentalcooldown";
     const RENT_CHECK_INTERVAL = 60 * 1000;
 
+    const ERROR = "[b][Error][/b]";
+    const INFO = "[b][Info][/b]";
+    const SUCCESS = "[b][Success][/b]";
+
     let BOT_UID = (backend.isConnected()) ? backend.getBotClient().uid() : "";
 
     setInterval(rentRefreshBot, RENT_CHECK_INTERVAL);
-
-    media.stop();
 
     /***************************
     /     EVENTS               /
     ***************************/
 
-    event.on("connect", () => BOT_UID = backend.getBotClient().uid());
+    event.on("connect", () => {
+        BOT_UID = backend.getBotClient().uid();
+        media.stop();
+    });
 
     event.on("chat", ({ client, mode, text }) => {
         if (client.isSelf() || // Ignore self
@@ -82,6 +141,9 @@ registerPlugin({
             case "youtube":
                 chooseMusic(client, "youtube", args[0]);
                 break;
+            case "quit":
+                rentQuit(client);
+                break;
             default:
                 return; // no valid command
         }
@@ -94,8 +156,10 @@ registerPlugin({
         if (rentInstanceActive()) {
             const owner = rentInstanceOwner();
             if (owner && client.equals(owner)) {
-                log(`Following owner - ${owner.nick()}`);
-                followOwner();
+                if (!IGNORE_CHANNELS.includes(toChannel.id())) {
+                    log(`Following owner - ${owner.nick()}`);
+                    followOwner();
+                }
             }
         }
     });
@@ -113,15 +177,19 @@ registerPlugin({
     function rentMake(client) {
         if (rentHasAny(client)) {
             log(`${client.nick()} can't rent a bot, whilst renting bot already!`);
-            return client.chat("You are already renting a bot!");
+            return client.chat(`${ERROR} You are already renting a bot!`);
         }
         if (rentOnCooldown(client)) {
             log(`${client.nick()} can't rent a bot, because there is a cooldown!`);
-            return client.chat("You need to wait before renting bot again!")
+            return client.chat(`${ERROR} You need to wait before renting bot again!`)
         }
         if (rentInstanceActive()) {
             log(`${client.nick()} can't rent a bot that is currently being "rented"!`);
-            return client.chat("Rent is currently active on this bot!");
+            return client.chat(`${ERROR} Rent is currently active on this bot!`);
+        }
+        if (!rentAllowed(client)) {
+            log(`${client.nick()} can't rent a bot, cause he ain't allowed to!`);
+            return client.chat(`${ERROR} You are not allowed to rent a bot!`);
         }
 
         rentSave(client);
@@ -147,9 +215,9 @@ registerPlugin({
         log(client.nick() + ` - starting cooldown!`);
 
         rentSet(rentData);
-        rentSetCooldown(client);
+        rentSetCooldown(client, rentData[BOT_UID].endTime + RENT_COOLDOWN);
 
-        client.chat("Rent started!");
+        client.chat(`${SUCCESS} Rent started!`);
     }
 
     /**
@@ -192,12 +260,12 @@ registerPlugin({
      * @param   {Client}  client  
      *         
      */
-    function rentSetCooldown(client) {
+    function rentSetCooldown(client, endDate) {
         const cooldownData = store.getGlobal(KEY_COOLDOWN) || {};
 
-        cooldownData[client.uid()] = Date.now() + RENT_TIME + RENT_COOLDOWN;
+        cooldownData[client.uid()] = endDate;
 
-        log(client.nick() + ` - cooldown ends on ${new Date(cooldownData[client.uid()])}!`);
+        log(client.nick() + ` - cooldown ends on ${new Date(endDate)}!`);
 
         store.setGlobal(KEY_COOLDOWN, cooldownData);
     }
@@ -275,10 +343,44 @@ registerPlugin({
      */
     function rentRefreshBot() {
         if (backend.isConnected() && !rentInstanceActive()) {
-            log(`Resetting bot channel (bot not being rented)!`);
+            log(`Resetting bot channel (bot is not being rented)!`);
             backend.getBotClient().moveTo(RENT_DEFAULT_CHANNEL);
             media.stop();
         }
+    }
+
+    /**
+     * Checks if client is allowed (has specified groups) to rent a bot
+     *
+     * @param   {Client}  client  
+     *
+     * @return  {Boolean}
+     */
+    function rentAllowed(client) {
+        const groups = client.getServerGroups().map(g => g.id());
+
+        return (BL) ?
+            groups.every(gID => !GROUP_IDS.includes(gID)) :
+            groups.some(gID => GROUP_IDS.includes(gID));
+    }
+
+    /**
+     * Quits the rent and refreshes the bot (if the owner called it)
+     *
+     * @param   {Client}  client
+     *
+     */
+    function rentQuit(client) {
+        if (!rentHasAny(client)) return client.chat(`${ERROR} You do not have a rent!`);
+        if (!rentInstanceActive()) return client.chat(`${ERROR} This instance does not have a rent!`);
+
+        const owner = rentInstanceOwner();
+        if (owner && client.equals(owner)) {
+            rentSet({});
+            rentRefreshBot();
+            log(`${client.nick()} quit the rent!`);
+            client.chat(`${SUCCESS} You have just cancelled your rent!`);
+        } else client.chat(`${ERROR} You are not the owner!`);
     }
 
     /**
@@ -289,59 +391,96 @@ registerPlugin({
     /     MUSIC MANAGEMENT     /
     ***************************/
 
+    /**
+     * Plays music by it's identificator and type
+     *
+     * @param   {Client}  client         
+     * @param   {String}  type           radio, youtube, playlist
+     * @param   {String}  identificator  id, url, etc.
+     *
+     */
     function chooseMusic(client, type, identificator) {
-        if (!rentInstanceActive()) return;
+        if (!rentInstanceActive()) return client.chat(`${ERROR} You need to rent the bot first!`);
 
         const owner = rentInstanceOwner();
-        if (!owner || !owner.equals(client)) return client.chat("You are not the owner!");
+        if (!owner || !owner.equals(client)) return client.chat(`${ERROR} You are not the owner!`);
 
         switch (type) {
             case "radio":
                 if (!identificator) {
                     const radios = Object.keys(RADIOS).map(radioName => `[b]Radio name:[/b] ${radioName}`);
                     log(`Listing radios for the owner - ${client.nick()}`);
-                    client.chat(`Radios (${radios.length}):\n${radios.join("\n")}`);
+                    client.chat(`${INFO} Radios (${radios.length}):\n${radios.join("\n")}`);
                 } else {
                     const radio = RADIOS[identificator.toLowerCase()];
 
                     if (!!radio) {
-                        client.chat(`Loading [b]${identificator}[/b] radio..`);
+                        client.chat(`${INFO} Loading [b]${identificator}[/b] radio..`);
 
                         const success = !!media.playURL(radio);
 
                         if (success) {
                             log(`Owner changed radio to ${identificator.toLowerCase()}`)
-                            client.chat(`Radio [b]${identificator}[/b] succesfully started!`);
+                            client.chat(`${SUCCESS} Radio [b]${identificator}[/b] succesfully started!`);
                         } else {
                             log(`Owner unsuccessfully tried changing radio to ${identificator.toLowerCase()}`);
-                            client.chat(`Error with the radio [b]${identificator}[/b], contact administrator!`);
+                            client.chat(`${ERROR} Corrupted radio [b]${identificator}[/b], contact administrator!`);
                         }
-                    } else client.chat("Invalid radio name!");
+                    } else client.chat(`${ERROR} Invalid radio name!`);
                 }
                 break;
             case "playlist":
                 if (!identificator) {
                     const playlists = media.getPlaylists() /*filter*/ .map(p => `[b]Playlist name:[/b] ${p.name()} [b]ID:[/b] [i]${p.id()}[/i]`);
                     log(`Listing playlists for the owner - ${client.nick()}`);
-                    client.chat(`Playlists (${playlists.length}):\n${playlists.join("\n")}`);
+                    client.chat(`${INFO} Playlists (${playlists.length}):\n${playlists.join("\n")}`);
                 } else {
                     const playlist = media.getPlaylistByID(identificator);
                     if (!!playlist /* if found */ ) {
                         playlist.setActive();
                         media.playlistPlayByID(playlist, 0);
                         log(`Owner changing playlist to ${playlist.name()}`);
-                        client.chat("Playlist changed!");
-                    } else client.chat("Invalid playlist ID!");
+                        client.chat(`${SUCCESS} Playlist changed!`);
+                    } else client.chat(`${ERROR} Invalid playlist ID!`);
                 }
                 break;
             case "youtube":
-                if (!identificator) client.chat(`You have to specify a Youtube URL to play first!`);
+                if (!identificator) client.chat(`${ERROR} You have to specify a Youtube URL to play first!`);
                 else {
-
+                    log(`Owner ${client.nick()} is trying to play Youtube URL - ${identificator}`);
+                    client.chat(`${INFO} Trying to play URL: [b]${identificator}[/b]`);
+                    media.yt(stripURL(identificator));
                 }
+                break;
             default:
                 console.error("Error, undefined music type!");
         }
+    }
+
+    /***************************
+    /     MISC / OTHER         /
+    ***************************/
+
+    /**
+     * Removes TeamSpeaks URL bb-code 
+     * @author Jonas Bögle (irgendwr)
+     * 
+     * @param {String} str
+     * 
+     * @return {String} str without [URL] [/URL]
+     */
+    function stripURL(str) {
+        // don't handle non-strings, return as provided
+        if (typeof str !== 'string') return str;
+
+        // remove surrounding [URL] [/URL] tags
+        let match = str.match(/\[URL\](.+)\[\/URL\]/i);
+        if (match && match.length >= 2) {
+            return match[1];
+        }
+
+        // if nothing matches just return str
+        return str;
     }
 
     engine.log(`*** SUCCESS *** Script: "${name}" Version: "${version}" Author: "${author}"`);
