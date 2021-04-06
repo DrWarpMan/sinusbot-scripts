@@ -36,7 +36,7 @@ registerPlugin({
     }, {
         name: "ignoreChannelIDs",
         type: "strings",
-        title: "Ignore channel IDs:",
+        title: "Ignore channel IDs:", // subchannels?
         default: []
     }, {
         name: "groupIDs",
@@ -48,6 +48,12 @@ registerPlugin({
         type: "checkbox",
         title: "Should previously list of groups be a blacklist?",
         default: false
+    }, {
+        name: "volume",
+        type: "number",
+        title: "Default volume level:",
+        default: 15,
+        placeholder: "15"
     }, {
         name: "radios",
         type: "array",
@@ -72,12 +78,13 @@ registerPlugin({
     const store = require("store");
     const backend = require("backend");
     const media = require("media");
+    const audio = require("audio");
 
     /***************************
     /     CONFIGURATION        /
     ***************************/
 
-    const { rentTime, rentCooldown, rentDepo, ignoreChannelIDs, groupIDs, blacklist, radios } = config;
+    const { rentTime, rentCooldown, rentDepo, ignoreChannelIDs, groupIDs, blacklist, radios, volume } = config;
 
     const RENT_TIME = (rentTime || 120) * 60 * 1000; // in minutes
     const RENT_COOLDOWN = (rentCooldown || 120) * 60 * 1000; // in minutes
@@ -85,6 +92,7 @@ registerPlugin({
     const IGNORE_CHANNELS = (ignoreChannelIDs || []);
     const GROUP_IDS = (groupIDs || []);
     const BL = blacklist || false;
+    const VOLUME = volume || 15;
     const RADIOS = {};
 
     (radios || []).forEach(({ radioName, radioURL }) => RADIOS[radioName.toLowerCase()] = radioURL);
@@ -115,7 +123,7 @@ registerPlugin({
 
     event.on("connect", () => {
         BOT_UID = backend.getBotClient().uid();
-        media.stop();
+        media.stop(); // radio fix? volume 0 and 100 mby?
     });
 
     event.on("chat", ({ client, mode, text }) => {
@@ -124,7 +132,8 @@ registerPlugin({
             return;
 
         const msg = text.split(" ").filter(i => /\s/.test(i) === false && i.length > 0);
-        const command = msg[0];
+        //const prefix = msg[0];
+        const command = msg[0]; // msg [1];
         const args = msg.slice(1);
 
         switch (command) {
@@ -140,6 +149,12 @@ registerPlugin({
                 break;
             case "youtube":
                 chooseMusic(client, "youtube", args[0]);
+                break;
+            case "stop":
+                chooseMusic(client, "stop");
+                break;
+            case "volume":
+                changeVolume(client, args[0]);
                 break;
             case "quit":
                 rentQuit(client);
@@ -216,6 +231,7 @@ registerPlugin({
 
         rentSet(rentData);
         rentSetCooldown(client, rentData[BOT_UID].endTime + RENT_COOLDOWN);
+        audio.setVolume(VOLUME);
 
         client.chat(`${SUCCESS} Rent started!`);
     }
@@ -399,8 +415,8 @@ registerPlugin({
      * @param   {String}  identificator  id, url, etc.
      *
      */
-    function chooseMusic(client, type, identificator) {
-        if (!rentInstanceActive()) return client.chat(`${ERROR} You need to rent the bot first!`);
+    function chooseMusic(client, type, identificator = false) {
+        if (!rentInstanceActive()) return client.chat(`${ERROR} Rent is not active on this instance!`);
 
         const owner = rentInstanceOwner();
         if (!owner || !owner.equals(client)) return client.chat(`${ERROR} You are not the owner!`);
@@ -452,8 +468,36 @@ registerPlugin({
                     media.yt(stripURL(identificator));
                 }
                 break;
+            case "stop":
+                media.stop();
+                log(`Owner ${client.nick()} has stopped the playback!`);
+                client.chat(`${SUCCESS} Playback stopped!`);
+                break;
             default:
                 console.error("Error, undefined music type!");
+        }
+    }
+
+    /**
+     * Changes the volume of the bot
+     *
+     * @param   {Client}  client  Only owner
+     * @param   {Integer}  level   1-100
+     *
+     */
+    function changeVolume(client, level) {
+        if (!rentInstanceActive()) return client.chat(`${ERROR} Rent is not active on this instance!`);
+
+        const owner = rentInstanceOwner();
+        if (!owner || !owner.equals(client)) return client.chat(`${ERROR} You are not the owner!`);
+
+        if (!level) return client.chat(`${ERROR} Specify a volume level please, 0-100!`);
+        else {
+            if (isNaN(level)) return client.chat(`${ERROR} Specified volume level is invalid, only 0-100!`);
+
+            audio.setVolume(level);
+            log(`Owner ${client.nick()} changed volume to ${level}!`);
+            client.chat(`${INFO} Volume changed to [b]${level}[/b]`);
         }
     }
 
