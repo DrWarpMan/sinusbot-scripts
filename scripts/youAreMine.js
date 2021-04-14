@@ -16,6 +16,11 @@ registerPlugin({
         title: "Check to enable detailed logs",
         default: false
     }, {
+        name: "botUIDs",
+        type: "strings",
+        title: "UIDs of all bots using this script:",
+        default: []
+    }, {
         name: "rentTime",
         type: "number",
         title: "How long can a bot be rented for? (in minutes):",
@@ -70,6 +75,67 @@ registerPlugin({
                 title: "Radio URL:"
             }
         ]
+    }, {
+        name: "editCommands",
+        title: "Edit commands?",
+        type: "checkbox",
+        default: false
+    }, {
+        name: "cmd_rent",
+        type: "string",
+        title: "Command for: renting the bot",
+        default: "!rent",
+        placeholder: "!rent",
+        conditions: [{ field: 'editCommands', value: 1 }]
+    }, {
+        name: "cmd_help",
+        type: "string",
+        title: "Command for: help about the rent system",
+        default: "!rent-help",
+        placeholder: "!rent-help",
+        conditions: [{ field: 'editCommands', value: 1 }]
+    }, {
+        name: "cmd_playlist",
+        type: "string",
+        title: "Command for: starting a playlist",
+        default: "!pl",
+        placeholder: "!pl",
+        conditions: [{ field: 'editCommands', value: 1 }]
+    }, {
+        name: "cmd_radio",
+        type: "string",
+        title: "Command for: starting a radio",
+        default: "!radio",
+        placeholder: "!radio",
+        conditions: [{ field: 'editCommands', value: 1 }]
+    }, {
+        name: "cmd_youtube",
+        type: "string",
+        title: "Command for: playing youtube URL",
+        default: "!youtube",
+        placeholder: "!youtube",
+        conditions: [{ field: 'editCommands', value: 1 }]
+    }, {
+        name: "cmd_stop",
+        type: "string",
+        title: "Command for: stopping the playback",
+        default: "!stop",
+        placeholder: "!stop",
+        conditions: [{ field: 'editCommands', value: 1 }]
+    }, {
+        name: "cmd_volume",
+        type: "string",
+        title: "Command for: setting the volume level",
+        default: "!level",
+        placeholder: "!level",
+        conditions: [{ field: 'editCommands', value: 1 }]
+    }, {
+        name: "cmd_quit",
+        type: "string",
+        title: "Command for: cancelling the bot",
+        default: "!quit",
+        placeholder: "!quit",
+        conditions: [{ field: 'editCommands', value: 1 }]
     }]
 }, (_, config, { name, version, author }) => {
 
@@ -84,8 +150,7 @@ registerPlugin({
     /     CONFIGURATION        /
     ***************************/
 
-    const { rentTime, rentCooldown, rentDepo, ignoreChannelIDs, groupIDs, blacklist, radios, volume } = config;
-
+    const { botUIDs, rentTime, rentCooldown, rentDepo, ignoreChannelIDs, groupIDs, blacklist, radios, volume } = config;
     const RENT_TIME = (rentTime || 120) * 60 * 1000; // in minutes
     const RENT_COOLDOWN = (rentCooldown || 120) * 60 * 1000; // in minutes
     const RENT_DEFAULT_CHANNEL = (rentDepo || "0"); // ID
@@ -94,8 +159,17 @@ registerPlugin({
     const BL = blacklist || false;
     const VOLUME = volume || 15;
     const RADIOS = {};
-
     (radios || []).forEach(({ radioName, radioURL }) => RADIOS[radioName.toLowerCase()] = radioURL);
+    const CMD = {
+        RENT: config.cmd_rent,
+        HELP: config.cmd_help,
+        PLAYLIST: config.cmd_playlist,
+        RADIO: config.cmd_radio,
+        QUIT: config.cmd_quit,
+        YOUTUBE: config.cmd_youtube,
+        STOP: config.cmd_stop,
+        VOLUME: config.cmd_volume
+    };
 
     /***************************
     /     INIT                 /
@@ -132,48 +206,53 @@ registerPlugin({
             return;
 
         const msg = text.split(" ").filter(i => /\s/.test(i) === false && i.length > 0);
-        //const prefix = msg[0];
-        const command = msg[0]; // msg [1];
+        const command = msg[0];
         const args = msg.slice(1);
 
         switch (command) {
-            case "rent":
-                log(client.nick() + ` is trying to rent a bot!`);
+            case CMD.RENT:
                 rentMake(client);
                 break;
-            case "playlist":
-                chooseMusic(client, "playlist", args[0]);
+            case CMD.HELP:
+                rentHelp(client);
                 break;
-            case "radio":
+            case CMD.RADIO:
                 chooseMusic(client, "radio", args[0]);
                 break;
-            case "youtube":
+            case CMD.YOUTUBE:
                 chooseMusic(client, "youtube", args[0]);
                 break;
-            case "stop":
+            case CMD.PLAYLIST:
+                chooseMusic(client, "playlist", args[0]);
+                break;
+            case CMD.STOP:
                 chooseMusic(client, "stop");
                 break;
-            case "volume":
+            case CMD.VOLUME:
                 changeVolume(client, args[0]);
                 break;
-            case "quit":
+            case CMD.QUIT:
                 rentQuit(client);
                 break;
             default:
-                return; // no valid command
+                return;
         }
     });
 
     event.on("clientMove", ({ client, toChannel }) => {
         if (client.isSelf() || // Ignore self
-            !toChannel) return; // If client disconnected
+            !toChannel || // If client disconnected
+            backend.getBotClient().getChannels()[0].equals(toChannel)) // If bot is already in the channel
+            return;
 
         if (rentInstanceActive()) {
             const owner = rentInstanceOwner();
             if (owner && client.equals(owner)) {
                 if (!IGNORE_CHANNELS.includes(toChannel.id())) {
-                    log(`Following owner - ${owner.nick()}`);
-                    followOwner();
+                    if (!anyBotsInChannel(toChannel)) {
+                        log(`Following owner - ${owner.nick()}`);
+                        followOwner();
+                    }
                 }
             }
         }
@@ -232,6 +311,7 @@ registerPlugin({
         rentSet(rentData);
         rentSetCooldown(client, rentData[BOT_UID].endTime + RENT_COOLDOWN);
         audio.setVolume(VOLUME);
+        media.stop();
 
         client.chat(`${SUCCESS} Rent started!`);
     }
@@ -400,6 +480,29 @@ registerPlugin({
     }
 
     /**
+     * Gives information on how to use the bot, for the client
+     *
+     * @param   {Client}  client
+     *
+     */
+    function rentHelp(client) {
+        const helpText = `${INFO} How to use the bot?
+You can rent a bot via the following command: [b]${CMD.RENT}[/b]
+Then you can control the music the way you like!
+
+Available commands to manage music:
+[b]${CMD.RADIO}[/b] <radioName> - list all radios or play a specific radio by it's name
+[b]${CMD.PLAYLIST}[/b] <playlistID> - list all playlists or play a specific playlist by ID
+[b]${CMD.YOUTUBE}[/b] <url> - play youtube URL
+[b]${CMD.VOLUME}[/b] <level> - set the volume level of the bot
+[b]${CMD.STOP}[/b] - stops the playback
+
+If you want, you can cancel the bot via [b]${CMD.QUIT}[/b]`;
+
+        client.chat(helpText);
+    }
+
+    /**
      * Checks if client is the rent owner
      */
 
@@ -447,11 +550,11 @@ registerPlugin({
                 break;
             case "playlist":
                 if (!identificator) {
-                    const playlists = media.getPlaylists() /*filter*/ .map(p => `[b]Playlist name:[/b] ${p.name()} [b]ID:[/b] [i]${p.id()}[/i]`);
+                    const playlists = media.getPlaylists() /*filter*/ .map(p => `[b]Playlist name:[/b] ${p.name()}`);
                     log(`Listing playlists for the owner - ${client.nick()}`);
                     client.chat(`${INFO} Playlists (${playlists.length}):\n${playlists.join("\n")}`);
                 } else {
-                    const playlist = media.getPlaylistByID(identificator);
+                    const playlist = media.getPlaylists().find(playlist => playlist.name().toLowerCase() === identificator.toLowerCase());
                     if (!!playlist /* if found */ ) {
                         playlist.setActive();
                         media.playlistPlayByID(playlist, 0);
@@ -463,6 +566,8 @@ registerPlugin({
             case "youtube":
                 if (!identificator) client.chat(`${ERROR} You have to specify a Youtube URL to play first!`);
                 else {
+                    const ytRegex = /^(?:https?:)?(?:\/\/)?(?:youtu\.be\/|(?:www\.|m\.)?youtube\.com\/(?:watch|v|embed)(?:\.php)?(?:\?.*v=|\/))([a-zA-Z0-9\_-]{7,15})(?:[\?&][a-zA-Z0-9\_-]+=[a-zA-Z0-9\_-]+)*$/;
+                    if (!ytRegex.test(identificator)) return client.chat(`${ERROR} Youtube URL seems invalid!`);
                     log(`Owner ${client.nick()} is trying to play Youtube URL - ${identificator}`);
                     client.chat(`${INFO} Trying to play URL: [b]${identificator}[/b]`);
                     media.yt(stripURL(identificator));
@@ -525,6 +630,10 @@ registerPlugin({
 
         // if nothing matches just return str
         return str;
+    }
+
+    function anyBotsInChannel(channel) {
+        return channel.getClients().map(c => c.uid()).some(uid => botUIDs.includes(uid));
     }
 
     engine.log(`*** SUCCESS *** Script: "${name}" Version: "${version}" Author: "${author}"`);
