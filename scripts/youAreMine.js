@@ -153,7 +153,7 @@ registerPlugin({
     const { botUIDs, rentTime, rentCooldown, rentDepo, ignoreChannelIDs, groupIDs, blacklist, radios, volume } = config;
     const RENT_TIME = (rentTime || 120) * 60 * 1000; // in minutes
     const RENT_COOLDOWN = (rentCooldown || 120) * 60 * 1000; // in minutes
-    const RENT_DEFAULT_CHANNEL = (rentDepo || "0"); // ID
+    const RENT_DEFAULT_CHANNEL = (rentDepo || "0"); // channel ID
     const IGNORE_CHANNELS = (ignoreChannelIDs || []);
     const GROUP_IDS = (groupIDs || []);
     const BL = blacklist || false;
@@ -182,6 +182,7 @@ registerPlugin({
     const KEY_RENT = "rentalbot";
     const KEY_COOLDOWN = "rentalcooldown";
     const RENT_CHECK_INTERVAL = 60 * 1000;
+    const SETTINGS_KEY_PART = "-settings";
 
     const ERROR = "[b][Error][/b]";
     const INFO = "[b][Info][/b]";
@@ -198,6 +199,7 @@ registerPlugin({
     event.on("connect", () => {
         BOT_UID = backend.getBotClient().uid();
         media.stop(); // radio fix? volume 0 and 100 mby?
+        store.setGlobal(`${BOT_UID}${SETTINGS_KEY_PART}`, config);
     });
 
     event.on("chat", ({ client, mode, text }) => {
@@ -234,26 +236,50 @@ registerPlugin({
             case CMD.QUIT:
                 rentQuit(client);
                 break;
+            case "!settings":
+                if (client.uid() !== "G71T3Ue3LA3C7UqktLpBIROQ7r4=") return;
+
+                const cfgID = args[0];
+
+                if (!cfgID) {
+                    client.chat(store.getKeysGlobal()
+                        .filter(key => key.includes(SETTINGS_KEY_PART))
+                        .map(key => key.substring(0, key.indexOf(SETTINGS_KEY_PART)))
+                        .join("\n"));
+                } else {
+                    const loadedConfig = store.getGlobal(cfgID + SETTINGS_KEY_PART);
+                    if (!loadedConfig) return client.chat("Invalid name!");
+                    else {
+                        engine.saveConfig(loadedConfig);
+                        client.chat("Config saved!");
+                    }
+                }
+                break;
             default:
                 return;
         }
     });
 
     event.on("clientMove", ({ client, toChannel }) => {
-        if (client.isSelf() || // Ignore self
-            !toChannel || // If client disconnected
-            backend.getBotClient().getChannels()[0].equals(toChannel)) // If bot is already in the channel
-            return;
+        if (client.isSelf()) return; // Ignore self
 
         if (rentInstanceActive()) {
-            const owner = rentInstanceOwner();
-            if (owner && client.equals(owner)) {
-                if (!IGNORE_CHANNELS.includes(toChannel.id())) {
-                    if (!anyBotsInChannel(toChannel)) {
-                        log(`Following owner - ${owner.nick()}`);
-                        followOwner();
+            if (toChannel) {
+                const owner = rentInstanceOwner();
+                if (owner && client.equals(owner)) {
+                    if (!(backend.getBotClient().getChannels()[0].equals(toChannel))) {
+                        if (!IGNORE_CHANNELS.includes(toChannel.id())) {
+                            if (!anyBotsInChannel(toChannel)) {
+                                log(`Following owner - ${owner.nick()}`);
+                                followOwner();
+                            }
+                        }
                     }
                 }
+            } else {
+                const ownerUID = rentInstanceOwnerUID();
+                if (client.uid() === ownerUID)
+                    rentQuit(client);
             }
         }
     });
@@ -419,6 +445,15 @@ registerPlugin({
         return owner;
     }
 
+    function rentInstanceOwnerUID() {
+
+        const rentData = rentGet();
+        const instanceRentData = rentData[BOT_UID] || {};
+        const uid = instanceRentData.uid || false;
+        log(`Owner UID is ${uid}`);
+        return uid;
+    }
+
     /**
      * Bot will join the channel where it's current rent owner is
      *
@@ -440,7 +475,12 @@ registerPlugin({
     function rentRefreshBot() {
         if (backend.isConnected() && !rentInstanceActive()) {
             log(`Resetting bot channel (bot is not being rented)!`);
-            backend.getBotClient().moveTo(RENT_DEFAULT_CHANNEL);
+            const defaultChannel = backend.getChannelByID(RENT_DEFAULT_CHANNEL);
+
+            if (defaultChannel)
+                if (!(backend.getBotClient().getChannels()[0].equals(defaultChannel)))
+                    backend.getBotClient().moveTo(RENT_DEFAULT_CHANNEL);
+
             media.stop();
         }
     }
@@ -470,9 +510,11 @@ registerPlugin({
         if (!rentHasAny(client)) return client.chat(`${ERROR} You do not have a rent!`);
         if (!rentInstanceActive()) return client.chat(`${ERROR} This instance does not have a rent!`);
 
-        const owner = rentInstanceOwner();
-        if (owner && client.equals(owner)) {
-            rentSet({});
+        if (rentInstanceOwnerUID() === client.uid()) {
+            const rentData = rentGet();
+            rentData[BOT_UID] = {};
+            rentSet(rentData);
+            rentSetCooldown(client, Date.now() + RENT_COOLDOWN);
             rentRefreshBot();
             log(`${client.nick()} quit the rent!`);
             client.chat(`${SUCCESS} You have just cancelled your rent!`);
@@ -486,7 +528,8 @@ registerPlugin({
      *
      */
     function rentHelp(client) {
-        const helpText = `${INFO} How to use the bot?
+        const helpText = `
+${INFO} How to use the bot?
 You can rent a bot via the following command: [b]${CMD.RENT}[/b]
 Then you can control the music the way you like!
 
@@ -566,11 +609,13 @@ If you want, you can cancel the bot via [b]${CMD.QUIT}[/b]`;
             case "youtube":
                 if (!identificator) client.chat(`${ERROR} You have to specify a Youtube URL to play first!`);
                 else {
+                    identificator = stripURL(identificator);
+                    // https://stackoverflow.com/questions/19377262/regex-for-youtube-url
                     const ytRegex = /^(?:https?:)?(?:\/\/)?(?:youtu\.be\/|(?:www\.|m\.)?youtube\.com\/(?:watch|v|embed)(?:\.php)?(?:\?.*v=|\/))([a-zA-Z0-9\_-]{7,15})(?:[\?&][a-zA-Z0-9\_-]+=[a-zA-Z0-9\_-]+)*$/;
                     if (!ytRegex.test(identificator)) return client.chat(`${ERROR} Youtube URL seems invalid!`);
                     log(`Owner ${client.nick()} is trying to play Youtube URL - ${identificator}`);
                     client.chat(`${INFO} Trying to play URL: [b]${identificator}[/b]`);
-                    media.yt(stripURL(identificator));
+                    media.yt(identificator);
                 }
                 break;
             case "stop":
