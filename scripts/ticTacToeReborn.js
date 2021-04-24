@@ -27,7 +27,7 @@ registerPlugin({
     const log = msg => !!config.logEnabled && engine.log(msg);
 
     const CMD = "!ttt";
-    const FIELD_SIZE = 10;
+    const FIELD_SIZE = 3;
     const MARKS_TO_WIN = 5;
     const INVITE_EXPIRE = 60 * 1000;
 
@@ -37,14 +37,22 @@ registerPlugin({
         p2: 2
     }
 
+    const COLORS = {
+        index: "gray",
+        p1: "red",
+        p2: "blue"
+    }
+
     /* TODO:
     - timeout solution for the invite?
     - cancel decline ignore?
     - disconnect solution?
     - timer for move etc.?
+    - requirement (groups etc.)?
     */
 
     const INVITES = {};
+    const INVITERS = {};
     const PLAYERS = new Map();
 
     class TTT {
@@ -58,20 +66,25 @@ registerPlugin({
 
             // Game settings
             this.size = size;
+            this.fakeSize = size + 1;
             this.turn = Math.random() < 1 / 2 ? this.uid1 : this.uid2; // Random first turn
             this.field = Array.from(Array(size), () => Array(size).fill(MARK.empty)); // Create empty x*x field
 
-            const first = backend.getClientByUID(this.turn);
-            const second = backend.getClientByUID((this.uid1 === this.turn) ? this.uid2 : this.uid1);
+            const first = this.uid1 === this.turn ? c1 : c2;
+            const second = this.uid1 === this.turn ? c2 : c1;
 
-            first.chat("It's [b]your[/b] turn!");
-            second.chat("Wait for [b]" + first.nick() + "[/b] to make a move!");
+            this.showField();
+            first.chat(`It's [b]your[/b] turn! Your mark is: [b]${MARK[this.players[first.uid()]]}[/b]`);
+            second.chat(`Wait for [b]${first.nick()}[/b] to make a move! Your mark is: [b]${MARK[this.players[second.uid()]]}[/b]`);
         }
 
         place(x, y, uid) {
             if (this.turn !== uid) return "Not your turn!";
-            if (typeof this.field[y] === "undefined") return "Out of bounds!";
-            if (typeof this.field[y][x] === "undefined") return "Out of bounds!";
+
+            [x, y] = [parseInt(x), parseInt(y)]; // Parse
+            if (isNaN(x) || isNaN(y)) return "Invalid positions!"; // Valid?
+            if ([x, y].some(pos => pos < 1 || pos > this.fakeSize)) return "Out of bounds!"; // In the field?
+            [x, y] = [x - 1, y - 1]; // Subtract 1 to make backend understand
 
             const currentMark = this.field[y][x];
             if (currentMark !== MARK.empty) return "This position is occupied!";
@@ -82,6 +95,9 @@ registerPlugin({
 
             if (this.isWin(uid)) {
                 this.makeWin(uid);
+                return true;
+            } else if (this.tie()) {
+                this.makeTie();
                 return true;
             }
 
@@ -94,13 +110,46 @@ registerPlugin({
             const players = [
                 backend.getClientByUID(this.uid1),
                 backend.getClientByUID(this.uid2)
-            ];
+            ].filter(c => c);
 
-            players.filter(c => c).forEach(c => {
-                // IMPROVE !!!
-                const field = this.field.map(row => row.join("|")).join("\n");
-                c.chat("Field:\n" + field);
+            const sep = "|"; // separator
+
+            let printedField = ``;
+            printedField += `[color=${COLORS.index}]`;
+            printedField += `${sep} 0 ${sep}`;
+
+            // first row (header / y axis)
+            printedField += [...Array(this.fakeSize).keys()] // make an array of 1 -> <fake size> numbers [1,2,3,...]
+                .slice(1) // remove the first index
+                .map(index => (index >= 10) ? index /*|10|*/ : ` ${index} ` /*| 1 |*/ ) // format the numbers
+                .join(sep);
+
+            printedField += "[/color]";
+
+            // other rows
+            this.field.forEach((row, index) => {
+                const yIndex = index + 1;
+                printedField += `\n`;
+                printedField += `[color=${COLORS.index}]`;
+                printedField += sep;
+                printedField += (yIndex >= 10) ? yIndex : ` ${yIndex} `;
+                printedField += sep;
+                printedField += "[/color]";
+                printedField += " " + row
+                    .map(mark => {
+                        switch (mark) {
+                            case 1:
+                                return `[color=${COLORS.p1}]${mark}[/color]`;
+                            case 2:
+                                return `[color=${COLORS.p2}]${mark}[/color]`;
+                            default:
+                                return mark;
+                        }
+                    })
+                    .join(` ${sep} `);
             });
+
+            players.forEach(c => c.chat("[b]Field:[/b]\n" + printedField));
         }
 
         isWin(uid) {
@@ -159,6 +208,10 @@ registerPlugin({
             return (winByRows() || winByColumns() || winByDiagonals());
         }
 
+        tie() {
+            return this.field.every(row => row.every(mark => mark !== MARK.empty));
+        }
+
         turnSwitch() {
             this.turn = (this.uid1 === this.turn) ? this.uid2 : this.uid1; // Switch turn
             const player = backend.getClientByUID(this.turn);
@@ -172,6 +225,16 @@ registerPlugin({
 
             winner.chat("You [color=green][b]won[/b][/color]!");
             looser.chat("You [color=red][b]lost[/b][/color]!");
+            this.end();
+        }
+
+        makeTie() {
+            const players = [
+                backend.getClientByUID(this.uid1),
+                backend.getClientByUID(this.uid2)
+            ].filter(c => c);
+
+            players.forEach(c => c.chat("It's a [b]tie[/b]!"));
             this.end();
         }
 
@@ -221,11 +284,7 @@ registerPlugin({
                     const x = args[1];
                     const y = args[2];
 
-                    if (!x || !y) return client.chat("X or Y position is invalid!");
-
                     const ttt = gameGet(client);
-                    if (!ttt) return client.chat("Error happened.");
-
                     const result = ttt.place(x, y, client.uid());
                     if (result !== true) return client.chat(result);
 
