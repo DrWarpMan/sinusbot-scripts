@@ -93,13 +93,10 @@ registerPlugin({
             backend.getClientByUID(uid).chat("Mark placed!"); // Inform the client
             this.showField(); // Print the field after a move
 
-            if (this.isWin(uid)) {
-                this.makeWin(uid);
-                return true;
-            } else if (this.tie()) {
-                this.makeTie();
-                return true;
-            }
+            if (this.isWin(uid))
+                return this.makeWin(uid);
+            else if (this.isTie())
+                return this.makeTie();
 
             this.turnSwitch(); // Switch player's turn after a move
 
@@ -152,14 +149,14 @@ registerPlugin({
             players.forEach(c => c.chat("[b]Field:[/b]\n" + printedField));
         }
 
-        isWin(uid) {
+        isWin(uid, field = this.field) {
             const playerMark = MARK[this.players[uid]];
             const expectedResult = playerMark * MARKS_TO_WIN;
 
             const winByRows = () => {
                 for (let i = 0; i < this.size; i++) {
                     let result = 0;
-                    const row = this.field[i];
+                    const row = field[i];
                     for (let j = 0; j < row.length; j++) {
                         const rowMark = row[j];
                         (rowMark === playerMark) ? (result += rowMark) : (result = 0);
@@ -174,7 +171,7 @@ registerPlugin({
                 for (let x = 0; x < this.size; x++) {
                     let result = 0;
                     for (let y = 0; y < this.size; y++) {
-                        const columnMark = this.field[y][x];
+                        const columnMark = field[y][x];
                         (columnMark === playerMark) ? (result += columnMark) : (result = 0);
                         if (result === expectedResult) return true;
                     }
@@ -189,7 +186,7 @@ registerPlugin({
 
                 const checkDiagonal = (x, y) => {
                     while (x < this.size && y < this.size) {
-                        const diagonalMark = this.field[x][y];
+                        const diagonalMark = field[x][y];
                         (diagonalMark === playerMark) ? (result += diagonalMark) : (result = 0);
                         if (result === expectedResult) return true;
                         x++;
@@ -208,8 +205,26 @@ registerPlugin({
             return (winByRows() || winByColumns() || winByDiagonals());
         }
 
-        tie() {
-            return this.field.every(row => row.every(mark => mark !== MARK.empty));
+        isTie() {
+            let emptyMarks = 0;
+
+            this.field.forEach(row => {
+                emptyMarks += row.filter(rowMark => rowMark === MARK.empty).length || 0;
+            });
+
+            return emptyMarks === 0 || (emptyMarks === 1 && this.isTiePredicted());
+        }
+
+        isTiePredicted() {
+            const y = this.field.findIndex(row => row.includes(MARK.empty));
+            const x = this.field[y].findIndex(mark => mark === MARK.empty);
+
+            const otherPlayerUID = (this.turn === this.uid1) ? this.uid2 : this.uid1;
+            const otherPlayerMark = MARK[this.players[otherPlayerUID]];
+            const tempField = this.field;
+            tempField[y][x] = otherPlayerMark;
+
+            return !this.isWin(otherPlayerUID, tempField);
         }
 
         turnSwitch() {
@@ -225,7 +240,9 @@ registerPlugin({
 
             winner.chat("You [color=green][b]won[/b][/color]!");
             looser.chat("You [color=red][b]lost[/b][/color]!");
-            this.end();
+            gameEnd(this.uid1, this.uid2);
+
+            return true;
         }
 
         makeTie() {
@@ -235,11 +252,9 @@ registerPlugin({
             ].filter(c => c);
 
             players.forEach(c => c.chat("It's a [b]tie[/b]!"));
-            this.end();
-        }
+            gameEnd(this.uid1, this.uid2);
 
-        end() {
-            return PLAYERS.delete(this.uid1) && PLAYERS.delete(this.uid2);
+            return true;
         }
     }
 
@@ -354,6 +369,18 @@ registerPlugin({
     function gameStart(c1, c2, size) {
         const game = new TTT(c1, c2, size);
         return gameSave(c1, c2, game);
+    }
+
+    /**
+     * Ends a game by players' UIDs
+     *
+     * @param   {String}  uid1  
+     * @param   {String}  uid2  
+     *
+     * @return  {Boolean}
+     */
+    function gameEnd(uid1, uid2) {
+        return PLAYERS.delete(uid1) && PLAYERS.delete(uid2);
     }
 
     /*
