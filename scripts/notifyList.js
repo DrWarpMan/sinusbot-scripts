@@ -36,7 +36,7 @@ registerPlugin({
 
     const NL_LIST_PREFIX = "nldata";
 
-    const NL_COOLDOWNS = {};
+    const NL_COOLDOWNS_ALL = {};
     const NL_COOLDOWN_TIME = 60 * 1000;
 
     const NL_PBTOKEN_PREFIX = "pbToken";
@@ -236,14 +236,17 @@ registerPlugin({
         }
 
         function nlOnCooldown(uid, addedbyUID) {
-            const cooldowns = NL_COOLDOWNS[uid] || false;
-            if (!cooldowns) return false;
-            else return (cooldowns[addedbyUID] || 0) + NL_COOLDOWN_TIME < Date.now();
+            const cooldowns = NL_COOLDOWNS_ALL[uid] || {};
+            if (Object.keys(cooldowns).length <= 0) return false;
+            else {
+                return (cooldowns[addedbyUID] || 0) > Date.now();
+            }
+
         }
 
         function nlSetCooldown(uid, addedbyUID) {
-            if (!NL_COOLDOWNS[uid]) NL_COOLDOWNS[uid] = {};
-            NL_COOLDOWNS[addedbyUID] = Date.now();
+            if (!NL_COOLDOWNS_ALL[uid]) NL_COOLDOWNS_ALL[uid] = {};
+            NL_COOLDOWNS_ALL[uid][addedbyUID] = Date.now() + NL_COOLDOWN_TIME;
         }
 
 
@@ -273,7 +276,7 @@ registerPlugin({
                 const { error, response } = await httpRequest(httpParams);
                 if (error) throw new Error(error);
                 else {
-                    console.log(response);
+                    log(JSON.stringify(response));
                     if (response.statusCode !== 200)
                         throw new Error("Status code: " + response.statusCode);
                     else
@@ -306,7 +309,7 @@ registerPlugin({
                 const { error, response } = await httpRequest(httpParams);
                 if (error) throw new Error(error);
                 else {
-                    console.log(response);
+                    log(JSON.stringify(response));
                     if (response.statusCode !== 200) {
                         nlPbTokenDelete(uid);
                         throw new Error("Status code: " + response.statusCode);
