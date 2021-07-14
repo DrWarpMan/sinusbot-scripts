@@ -1,3 +1,4 @@
 .*
 scripts/command.js
 scripts/sinusbot-commands.js
+node_modules
