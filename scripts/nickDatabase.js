@@ -27,9 +27,13 @@ registerPlugin({
     event.on("clientNick", (client, _) => saveNick(client));
     event.on("clientVisible", ({ client }) => saveNick(client));
 
-    function getNick(uid) { return store.get(uid) || false };
+    function getNick(uid) {
+        //logMsg(`Grabbing nick of: ${uid}`);
+        return store.get(uid) || false;
+    };
 
     function saveNick(client) {
+        //logMsg(`Saving nick of: ${client.uid()} (${client.nick()})`);
         return store.set(client.uid(), client.nick());
     };
 
