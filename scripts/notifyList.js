@@ -15,6 +15,11 @@ registerPlugin({
         type: "checkbox",
         title: "Check to enable detailed logs",
         default: false
+    }, {
+        name: "serverName",
+        type: "string",
+        title: "Server name:",
+        default: "Unknown"
     }]
 }, (_, config, { name, version, author }) => {
 
@@ -152,35 +157,35 @@ registerPlugin({
                 if (addedby.length >= 1) {
                     addedby.forEach(addedbyUID => {
                         if (!nlOnCooldown(uid, addedbyUID)) {
-                            const addedbyClient = backend.getClientByUID(addedbyUID);
-                            if (addedbyClient) {
-                                const { added } = nlDataGet(addedbyUID);
-                                const settings = added[uid];
+                            const { added } = nlDataGet(addedbyUID);
+                            const settings = added[uid];
 
-                                nlSetCooldown(uid, addedbyUID);
+                            Object.keys(settings).forEach(methodName => {
+                                const methodValue = settings[methodName];
+                                if (methodValue) notify(addedbyUID, methodName, client);
+                            });
 
-                                Object.keys(settings).forEach(methodName => {
-                                    const methodValue = settings[methodName];
-                                    if (methodValue) notify(addedbyClient, methodName, client);
-                                });
-                            }
+                            nlSetCooldown(uid, addedbyUID);
                         }
                     });
                 }
             }
         });
 
-        function notify(client, method, targetClient) {
+        function notify(uid, method, targetClient) {
+            const client = backend.getClientByUID(uid);
             switch (method) {
                 case "chatNotify":
+                    if (!client) return;
                     client.chat(`>>> ${nickURL(targetClient.uid(), targetClient.nick())} has just joined the server!`);
                     break;
                 case "pokeNotify":
+                    if (!client) return;
                     client.poke(`>>> [b]${targetClient.nick()}[/b] has joined the server! (${targetClient.uid()})`);
                     break;
                 case "pushbulletNotify":
-                    const token = nlPbTokenGet(client.uid());
-                    if (token !== false) nlPbNotificationSend(client.uid(), token, targetClient);
+                    const token = nlPbTokenGet(uid);
+                    if (token !== false) nlPbNotificationSend(uid, token, targetClient);
                     break;
                 default:
                     throw new Error(`Invalid method: ${method}`);
@@ -299,7 +304,7 @@ registerPlugin({
                     "Content-Type": "application/json"
                 },
                 body: JSON.stringify({
-                    "body": "SERVER_NAME",
+                    "body": config.serverName || "Unknown",
                     "title": targetClient.nick() + " joined the server!",
                     "type": "note"
                 })
