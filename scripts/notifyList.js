@@ -20,6 +20,12 @@ registerPlugin({
         type: "string",
         title: "Server name:",
         default: "Unknown"
+    }, {
+        name: "notifyCooldown",
+        type: "number",
+        title: "Notify cooldown (in seconds):",
+        default: 60,
+        placeholder: "60"
     }]
 }, (_, config, { name, version, author }) => {
 
@@ -33,7 +39,7 @@ registerPlugin({
     /     CONFIGURATION        /
     ***************************/
 
-    const {} = config;
+    const { serverName, notifyCooldown } = config;
 
     /***************************
     /     INIT                 /
@@ -42,7 +48,7 @@ registerPlugin({
     const NL_LIST_PREFIX = "nldata";
 
     const NL_COOLDOWNS_ALL = {};
-    const NL_COOLDOWN_TIME = 60 * 1000;
+    const NL_COOLDOWN_TIME = (notifyCooldown || 60) * 1000;
 
     const NL_PBTOKEN_PREFIX = "pbToken";
 
@@ -304,7 +310,7 @@ registerPlugin({
                     "Content-Type": "application/json"
                 },
                 body: JSON.stringify({
-                    "body": config.serverName || "Unknown",
+                    "body": serverName || "Unknown",
                     "title": targetClient.nick() + " joined the server!",
                     "type": "note"
                 })
