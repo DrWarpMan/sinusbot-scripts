@@ -152,31 +152,34 @@ registerPlugin({
                 }
             });
 
-        event.on("clientMove", ({ client, fromChannel }) => {
-            if (client.isSelf()) return; // Ignore self
+        // Delay after load
+        setTimeout(() => {
+            event.on("clientMove", ({ client, fromChannel }) => {
+                if (client.isSelf()) return; // Ignore self
 
-            // If connected
-            if (!fromChannel) {
-                const uid = client.uid();
-                const { addedby } = nlDataGet(uid);
+                // If connected
+                if (!fromChannel) {
+                    const uid = client.uid();
+                    const { addedby } = nlDataGet(uid);
 
-                if (addedby.length >= 1) {
-                    addedby.forEach(addedbyUID => {
-                        if (!nlOnCooldown(uid, addedbyUID)) {
-                            const { added } = nlDataGet(addedbyUID);
-                            const settings = added[uid];
+                    if (addedby.length >= 1) {
+                        addedby.forEach(addedbyUID => {
+                            if (!nlOnCooldown(uid, addedbyUID)) {
+                                const { added } = nlDataGet(addedbyUID);
+                                const settings = added[uid];
 
-                            Object.keys(settings).forEach(methodName => {
-                                const methodValue = settings[methodName];
-                                if (methodValue) notify(addedbyUID, methodName, client);
-                            });
+                                Object.keys(settings).forEach(methodName => {
+                                    const methodValue = settings[methodName];
+                                    if (methodValue) notify(addedbyUID, methodName, client);
+                                });
 
-                            nlSetCooldown(uid, addedbyUID);
-                        }
-                    });
+                                nlSetCooldown(uid, addedbyUID);
+                            }
+                        });
+                    }
                 }
-            }
-        });
+            });
+        }, 10 * 1000);
 
         function notify(uid, method, targetClient) {
             const client = backend.getClientByUID(uid);
