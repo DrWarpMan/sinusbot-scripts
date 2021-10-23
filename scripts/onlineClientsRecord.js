@@ -1,7 +1,7 @@
 registerPlugin(
 	{
 		name: "Online Clients Record",
-		version: "2.1.1",
+		version: "2.2.0",
 		description:
 			"Show the most online clients record in a channel name and population statistics in a channel description!",
 		author: "DrWarpMan <drwarpman@gmail.com>",
@@ -321,6 +321,7 @@ registerPlugin(
 							  )
 							: channel.description();
 
+						// @ts-ignore
 						channel.update({
 							name,
 							topic,
@@ -331,7 +332,7 @@ registerPlugin(
 			);
 		}
 
-		function checkClient(moveInfo = false) {
+		function checkClient(moveInfo = {}) {
 			if (!isConnected) return;
 			if (moveInfo && moveInfo.fromChannel && moveInfo.toChannel) return;
 
