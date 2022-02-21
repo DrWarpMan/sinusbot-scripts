@@ -122,6 +122,14 @@ function extendedConfig() {
 		placeholder: 120,
 	});
 
+	entries.push({
+		name: "REFRESH_ONLINE_INTERVAL",
+		type: "number",
+		title: "How often will ranks of online clients be refreshed in minutes [Minimum: 30 minutes]:",
+		default: 30,
+		placeholder: 30,
+	});
+
 	checkBox(PREFIX.SHOW + "commands", "Show commands configuration");
 
 	Object.keys(COMMANDS).forEach(cmdName => {
@@ -272,6 +280,7 @@ registerPlugin(
 				GROUPS,
 				GROUPS_BLACKLIST,
 				VERIFICATION_TIME,
+				REFRESH_ONLINE_INTERVAL,
 			} = config;
 
 			const QUEUE_TYPES = {
@@ -355,6 +364,33 @@ registerPlugin(
 
 					pauseCommands = false;
 					log(`Refreshing summoners finished, commands unpaused!`);
+
+					scheduleNextSummonersRefresh();
+				}
+
+				static async refreshOnlineRanks() {
+					log(`Refreshing online clients ranks started, all commands paused!`);
+
+					pauseCommands = true;
+
+					for (const keyName of store.getKeys()) {
+						if (!keyName.startsWith("lol")) continue;
+
+						const uid = keyName.substring(3);
+						const account = new LoLAccount(uid);
+
+						if (!account.link) continue;
+						if (!account.isVerified()) continue;
+						log(`Refreshing rank of: ${uid}`);
+
+						try {
+							if (!(await account.updateRank())) log(`Rank could not be updated.`);
+							else log(`Rank updated successfully.`);
+						} catch (err) {
+							console.log(err, uid);
+							continue;
+						}
+					}
 				}
 
 				static isSummonerClaimed(searchPuuid) {
@@ -482,7 +518,9 @@ registerPlugin(
 						}
 
 						if (finalRank === null)
-							throw new Error(`Final rank was not handled correctly for user ${this.uid}`);
+							throw new Error(
+								`Receiving final rank was not handled correctly for user ${this.uid}`
+							);
 
 						return finalRank;
 					} catch (err) {
@@ -677,6 +715,7 @@ registerPlugin(
 				// everyone should have access to unlink their accounts => no permission check
 				.exec((client, args, reply) => {
 					if (pauseCommands) return reply(translate("commandsPaused"));
+
 					const uid = client.uid();
 					const account = new LoLAccount(uid);
 					if (!account.link) return reply(translate("accountNotLinked"));
@@ -747,6 +786,29 @@ registerPlugin(
 					});
 				});
 			}
+
+			/* Initializing refreshing intervals */
+
+			function scheduleNextSummonersRefresh() {
+				const nextRefreshDate = new Date();
+				nextRefreshDate.setDate(nextRefreshDate.getDate() + 1);
+				nextRefreshDate.setHours(3, 0, 0, 0);
+				const tillNextRefreshInMs = nextRefreshDate.getTime() - Date.now();
+
+				setTimeout(LoLAccount.refreshSummoners, tillNextRefreshInMs);
+				log(
+					`Scheduled next summoners refresh in ${(tillNextRefreshInMs / (60 * 60 * 1000)).toFixed(
+						1
+					)} hours.`
+				);
+			}
+
+			scheduleNextSummonersRefresh();
+
+			setInterval(
+				() => LoLAccount.refreshOnlineRanks(),
+				REFRESH_ONLINE_INTERVAL >= 30 ? REFRESH_ONLINE_INTERVAL * 1000 * 60 : 30 * 1000 * 60
+			);
 
 			engine.log(`\n[Script] "${name}" [Version] "${version}" [Author] "${author}"`);
 		});
