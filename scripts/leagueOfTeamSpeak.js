@@ -112,7 +112,9 @@ function extendedConfig() {
 		default: [],
 	});
 
-	checkBox("GROUPS_BLACKLIST", "Consider the previous list of groups as a blacklist?");
+	checkBox("GROUPS_BLACKLIST", "Consider the previous list of groups as a blacklist?", false, {
+		indent: 1,
+	});
 
 	entries.push({
 		name: "VERIFICATION_TIME",
@@ -245,7 +247,25 @@ registerPlugin(
 		 * Testing code
 		 */
 
-		//store.getKeys().forEach(keyName => store.unset(keyName));
+		/*function makeid(length) {
+			var result = "";
+			var characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+			var charactersLength = characters.length;
+			for (var i = 0; i < length; i++) {
+				result += characters.charAt(Math.floor(Math.random() * charactersLength));
+			}
+			return result;
+		}
+
+		var test = store.get(store.getKeys()[0]);
+
+		Array(10)
+			.fill()
+			.forEach(_ => {
+				store.set(`lol${makeid(10)}`, test);
+			});*/
+
+		//for (const key of store.getKeys()) store.unset(key);
 
 		function showDB() {
 			console.log(
@@ -331,6 +351,12 @@ registerPlugin(
 							}
 						}
 
+						if (!isRegionAllowed(account.link.region)) {
+							log("Account is in blocked region. Deleting from database.");
+							account.link = null;
+							continue;
+						}
+
 						try {
 							log(`Fetching..`);
 							const { statusCode, status, data } = await LoLAccount.fetchSummoner(
@@ -373,14 +399,13 @@ registerPlugin(
 
 					pauseCommands = true;
 
-					for (const keyName of store.getKeys()) {
-						if (!keyName.startsWith("lol")) continue;
-
-						const uid = keyName.substring(3);
+					for (const client of backend.getClients()) {
+						const uid = client.uid();
 						const account = new LoLAccount(uid);
 
 						if (!account.link) continue;
 						if (!account.isVerified()) continue;
+
 						log(`Refreshing rank of: ${uid}`);
 
 						try {
@@ -391,6 +416,10 @@ registerPlugin(
 							continue;
 						}
 					}
+
+					pauseCommands = false;
+
+					log("Refreshing online clients ended, commands unpaused.");
 				}
 
 				static isSummonerClaimed(searchPuuid) {
@@ -720,6 +749,7 @@ registerPlugin(
 					const account = new LoLAccount(uid);
 					if (!account.link) return reply(translate("accountNotLinked"));
 					account.link = null;
+
 					return reply(translate("accountUnlinked"));
 				});
 
@@ -797,17 +827,17 @@ registerPlugin(
 
 				setTimeout(LoLAccount.refreshSummoners, tillNextRefreshInMs);
 				log(
-					`Scheduled next summoners refresh in ${(tillNextRefreshInMs / (60 * 60 * 1000)).toFixed(
-						1
-					)} hours.`
+					`Scheduled next summoners refresh in ` +
+						(tillNextRefreshInMs / (60 * 60 * 1000)).toFixed(1) +
+						` hours.`
 				);
 			}
 
 			scheduleNextSummonersRefresh();
 
 			setInterval(
-				() => LoLAccount.refreshOnlineRanks(),
-				REFRESH_ONLINE_INTERVAL >= 30 ? REFRESH_ONLINE_INTERVAL * 1000 * 60 : 30 * 1000 * 60
+				LoLAccount.refreshOnlineRanks,
+				(REFRESH_ONLINE_INTERVAL >= 30 ? REFRESH_ONLINE_INTERVAL : 30) * 60 * 1000
 			);
 
 			engine.log(`\n[Script] "${name}" [Version] "${version}" [Author] "${author}"`);
