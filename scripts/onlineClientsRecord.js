@@ -27,6 +27,12 @@ registerPlugin(
 				default: "",
 			},
 			{
+				name: "useMarkdown",
+				type: "checkbox",
+				title: "Use markdown instead of BB code? (aka adapt for TeamSpeak 5 clients)",
+				default: false,
+			},
+			{
 				name: "channels",
 				type: "array",
 				title: "Channels:",
@@ -41,7 +47,7 @@ registerPlugin(
 						name: "name",
 						type: "string",
 						title:
-							"Channel Name [Placeholder: %g_record%, %y%, %m%, %d%, %h%, %m%, %t_record%]:",
+							"Channel Name [Placeholder: %g_record%, %y%, %m%, %d%, %h%, %m%, %t_record%, %online%]:",
 						placeholder: "Online Clients Record: %g_record%",
 						default: "Online Clients Record: %g_record%",
 					},
@@ -49,14 +55,14 @@ registerPlugin(
 						name: "topic",
 						type: "string",
 						title:
-							"Channel Topic [Placeholder: %g_record%, %y%, %m%, %d%, %h%, %m%, %t_record%]:",
+							"Channel Topic [Placeholder: %g_record%, %y%, %m%, %d%, %h%, %m%, %t_record%, %online%]:",
 						placeholder: "Record: %g_record% Date: %d%.%m%.%y% %h%:%m%",
 						default: "Record: %g_record% Date: %d%.%m%.%y% %h%:%m%",
 					},
 					{
 						name: "description",
 						type: "multiline",
-						title: "Channel Description [Placeholder: %stats%, %days%]:",
+						title: "Channel Description [Placeholder: %stats%, %days%, %online%]:",
 						placeholder: "%stats%",
 						default: "%stats%",
 					},
@@ -69,8 +75,7 @@ registerPlugin(
 					{
 						name: "descriptionDate",
 						type: "string",
-						title:
-							"Date format in channel description [Placeholder: %y%, %m%, %d%]:",
+						title: "Date format in channel description [Placeholder: %y%, %m%, %d%]:",
 					},
 					{
 						name: "headerDate",
@@ -132,6 +137,7 @@ registerPlugin(
 			ignoredUIDs,
 			dateZeros,
 			allowDuplicateIPs,
+			useMarkdown,
 		} = config;
 
 		const GLOBAL_RECORD_KEYNAME = "record";
@@ -140,6 +146,7 @@ registerPlugin(
 		const IP_SAVE_KEYNAME = "ip";
 		const GLOBAL_RECORD_PHOLDER = "%g_record%";
 		const TODAY_RECORD_PHOLDER = "%t_record%";
+		const ONLINE_PHOLDER = "%online%";
 		const UPDATE_INTERVAL = 60;
 		const COMMAND = "!ocr";
 
@@ -154,9 +161,7 @@ registerPlugin(
 			if (mode != 1) return; // if not private chat
 			if (!password || password.length < 1) return; // if password is not defined, disable command usage
 
-			const msg = text
-				.split(" ")
-				.filter(i => /\s/.test(i) === false && i.length > 0);
+			const msg = text.split(" ").filter(i => /\s/.test(i) === false && i.length > 0);
 			const command = msg[0].toLowerCase();
 			const args = msg.slice(1);
 			const inputPassword = args[0];
@@ -167,37 +172,27 @@ registerPlugin(
 					switch (task) {
 						case "reset_all":
 							resetAll();
-							logMsg(
-								`Client "${client.nick()}" reset whole database! (${client.uid()})`
-							);
+							logMsg(`Client "${client.nick()}" reset whole database! (${client.uid()})`);
 							client.chat("Everything was reset!");
 							break;
 						case "reset_global":
 							resetRecordGlobal();
-							logMsg(
-								`Client "${client.nick()}" reset the global record! (${client.uid()})`
-							);
+							logMsg(`Client "${client.nick()}" reset the global record! (${client.uid()})`);
 							client.chat("Global record was reset!");
 							break;
 						case "reset_daily":
 							resetDailyRecords();
-							logMsg(
-								`Client "${client.nick()}" reset daily records! (${client.uid()})`
-							);
+							logMsg(`Client "${client.nick()}" reset daily records! (${client.uid()})`);
 							client.chat("Daily records was reset!");
 							break;
 						case "reset_visits":
 							resetUniqueVisits();
-							logMsg(
-								`Client "${client.nick()}" reset unique visits! (${client.uid()})`
-							);
+							logMsg(`Client "${client.nick()}" reset unique visits! (${client.uid()})`);
 							client.chat("Unique visits were reset!");
 							break;
 						case "reset_today":
 							resetTodaysRecord();
-							logMsg(
-								`Client "${client.nick()}" reset today's record! (${client.uid()})`
-							);
+							logMsg(`Client "${client.nick()}" reset today's record! (${client.uid()})`);
 							client.chat("Today's record was reset!");
 							break;
 						default:
@@ -205,9 +200,7 @@ registerPlugin(
 							break;
 					}
 				} else {
-					logMsg(
-						`Client "${client.nick()}" used invalid password! (${client.uid()})`
-					);
+					logMsg(`Client "${client.nick()}" used invalid password! (${client.uid()})`);
 					client.chat("Invalid password!");
 				}
 			}
@@ -233,17 +226,15 @@ registerPlugin(
 					if (channel) {
 						logMsg(`Updating channel with ID: ${id}`);
 
-						/*
-                    NAME, TOPIC
-                */
-
-						const { record: recordGlobal, date: dateGlobal } =
-							getRecordGlobal();
+						const { record: recordGlobal, date: dateGlobal } = getRecordGlobal();
+						const recordToday = getRecordToday();
+						const online = getOnline();
 
 						const getChannelName = (name, record, date) => {
 							name = name
 								.replace(GLOBAL_RECORD_PHOLDER, record)
-								.replace(TODAY_RECORD_PHOLDER, getRecordToday());
+								.replace(TODAY_RECORD_PHOLDER, recordToday)
+								.replace(ONLINE_PHOLDER, online);
 							name = replaceDate(name, date);
 							return name;
 						};
@@ -251,31 +242,31 @@ registerPlugin(
 						const getChannelTopic = (topic, record, date) => {
 							topic = topic
 								.replace(GLOBAL_RECORD_PHOLDER, record)
-								.replace(TODAY_RECORD_PHOLDER, getRecordToday());
+								.replace(TODAY_RECORD_PHOLDER, recordToday)
+								.replace(ONLINE_PHOLDER, online);
 							topic = replaceDate(topic, date);
 							return topic;
 						};
 
-						/*
-                    DESCCRIPTION
-                */
-
-						const getChannelDescription = (
-							description,
-							days,
-							visits,
-							dailyRecords
-						) => {
+						const getChannelDescription = (description, days, visits, dailyRecords) => {
 							if (!dateFormat) dateFormat = "%d%.%m%.%y%";
 
-							let stats = "[table]";
+							const TAB = "	";
 
-							stats +=
-								`\n[tr]` +
-								`[th]${headerD || "Date"}[/th]` +
-								`[th]         ${headerUV || "Unique Visits"}         [/th]` +
-								`[th]${headerRO || "Record"}[/th]` +
-								`\n[/tr]`;
+							let stats = !useMarkdown ? "[table]" : "";
+
+							if (useMarkdown) {
+								stats += `**${headerD || "Date"}**${TAB}${TAB}${TAB}**${
+									headerUV || "Unique Visits"
+								}**${TAB}${TAB}**${headerRO || "Record"}**\n`;
+							} else {
+								stats +=
+									`\n[tr]` +
+									`[th]${headerD || "Date"}[/th]` +
+									`[th]         ${headerUV || "Unique Visits"}         [/th]` +
+									`[th]${headerRO || "Record"}[/th]` +
+									`\n[/tr]`;
+							}
 
 							days = parseInt(days);
 							if (!days || days < 0 || days > 59) days = 0;
@@ -285,40 +276,38 @@ registerPlugin(
 							Array(days + 1)
 								.fill("")
 								.forEach(() => {
-									const thisDayVisits = (visits[currentDay.getTime()] || [])
-										.length;
+									const thisDayVisits = (visits[currentDay.getTime()] || []).length;
 									const thisDayRecord = dailyRecords[currentDay.getTime()] || 0;
 
-									stats += `\n[tr][td][center]${replaceDate(
-										dateFormat,
-										currentDay
-									)}[/center][/td]`;
-									stats += `\n[td][center]${thisDayVisits}[/center][/td]`;
-									stats += `\n[td][center]${thisDayRecord}[/center][/td][/tr]`;
+									if (useMarkdown) {
+										stats += `${replaceDate(
+											dateFormat,
+											currentDay
+										)}${TAB}${TAB}${TAB}${thisDayVisits}${TAB}${TAB}${TAB}${TAB}${thisDayRecord}\n`;
+									} else {
+										stats += `\n[tr][td][center]${replaceDate(
+											dateFormat,
+											currentDay
+										)}[/center][/td]`;
+										stats += `\n[td][center]${thisDayVisits}[/center][/td]`;
+										stats += `\n[td][center]${thisDayRecord}[/center][/td][/tr]`;
+									}
 
 									currentDay.setDate(currentDay.getDate() - 1);
 								});
 
-							stats += "\n[/table]";
+							if (!useMarkdown) stats += "\n[/table]";
 
 							return description
 								.replace("%stats%", stats)
-								.replace("%days%", days + 1);
+								.replace("%days%", days + 1)
+								.replace(ONLINE_PHOLDER, online);
 						};
 
-						name = name
-							? getChannelName(name, recordGlobal, dateGlobal)
-							: channel.name();
-						topic = topic
-							? getChannelTopic(topic, recordGlobal, dateGlobal)
-							: channel.topic();
+						name = name ? getChannelName(name, recordGlobal, dateGlobal) : channel.name();
+						topic = topic ? getChannelTopic(topic, recordGlobal, dateGlobal) : channel.topic();
 						description = description
-							? getChannelDescription(
-									description,
-									days,
-									getUniqueVisits(),
-									getDailyRecords()
-							  )
+							? getChannelDescription(description, days, getUniqueVisits(), getDailyRecords())
 							: channel.description();
 
 						// @ts-ignore
@@ -351,9 +340,7 @@ registerPlugin(
 			const ip = client.getIPAddress();
 
 			if (!ip)
-				return logMsg(
-					`[VISITS] Couldn't get IP address from client with UID: ${uid} - ignoring..`
-				);
+				return logMsg(`[VISITS] Couldn't get IP address from client with UID: ${uid} - ignoring..`);
 
 			saveIP(client, ip);
 
@@ -479,9 +466,7 @@ registerPlugin(
 		 */
 
 		function getOnline() {
-			const clients = removeDuplicits(
-				backend.getClients().filter(client => !isIgnored(client))
-			);
+			const clients = removeDuplicits(backend.getClients().filter(client => !isIgnored(client)));
 			return clients.length;
 		}
 
@@ -500,7 +485,7 @@ registerPlugin(
 
 							if (!ucIp) return false;
 
-							return ucUid === cUid || ucIp === cIp;
+							return ucUid === cUid || (!allowDuplicateIPs && ucIp === cIp);
 						})
 					)
 						uniqueClients.push(client);
@@ -542,9 +527,7 @@ registerPlugin(
 				const month = dateZeros
 					? (date.getMonth() + 1 < 10 ? "0" : "") + (date.getMonth() + 1)
 					: date.getMonth() + 1;
-				const day = dateZeros
-					? (date.getDate() < 10 ? "0" : "") + date.getDate()
-					: date.getDate();
+				const day = dateZeros ? (date.getDate() < 10 ? "0" : "") + date.getDate() : date.getDate();
 				const hours = (date.getHours() < 10 ? "0" : "") + date.getHours();
 				const minutes = (date.getMinutes() < 10 ? "0" : "") + date.getMinutes();
 
@@ -608,8 +591,6 @@ registerPlugin(
 		}
 
 		// SCRIPT LOADED SUCCCESFULLY
-		engine.log(
-			`\n[Script] "${name}" [Version] "${version}" [Author] "${author}"`
-		);
+		engine.log(`\n[Script] "${name}" [Version] "${version}" [Author] "${author}"`);
 	}
 );
