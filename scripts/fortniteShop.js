@@ -1,322 +1,249 @@
-registerPlugin({
-    name: "Fortnite Shop [fortniteapi.io]",
-    version: "1.0.0",
-    description: "Show Fortnite Shop & more in a channel description",
-    author: "DrWarpMan <drwarpman@gmail.com>",
-    backends: ["ts3"],
-    engine: ">= 1.0",
-    autorun: false,
-    enableWeb: false,
-    hidden: false,
-    requiredModules: ["http"],
-    voiceCommands: [],
-    vars: [{
-        name: "logEnabled",
-        type: "checkbox",
-        title: "Check to enable detailed logs",
-        default: false
-    }, {
-        name: "apiKey",
-        type: "password",
-        title: "API key (get your own at fortniteapi.io):",
-        default: ""
-    }, {
-        name: "interval",
-        type: "number",
-        title: "Update interval (minutes) [Set to 0 if you aren't using upcoming items]:",
-        default: 60,
-        placeholder: "60"
-    }, {
-        name: "channels",
-        type: "array",
-        title: "Channels:",
-        default: [],
-        vars: [{
-            name: "id",
-            type: "string",
-            title: "ID:"
-        }, {
-            name: "description",
-            type: "multiline",
-            title: "Description [Placeholders: %ITEMTYPE-IMGSIZE-IMGTYPE-COLUMNS%] (documented on the forums):"
-        }]
-    }]
-}, (_, config, { name, version, author }) => {
+registerPlugin(
+	{
+		name: "Fornite Shop [fortniteapi.io]",
+		version: "2.0.0",
+		description: "Display current Fortnite shop rotation & more in a channel description",
+		author: "DrWarpMan <drwarpman@gmail.com>",
+		backends: ["ts3"],
+		engine: ">= 1.0",
+		autorun: false,
+		enableWeb: false,
+		hidden: false,
+		requiredModules: ["http"],
+		voiceCommands: [],
+		vars: [
+			{
+				name: "logEnabled",
+				type: "checkbox",
+				title: "Check to enable detailed logs",
+				default: false,
+			},
+			{
+				name: "key",
+				type: "password",
+				title: "API key (get your own at fortniteapi.io):",
+				default: "",
+				placeholder: "9a378aa6-2fdd68cf-ab45fe1f-7fdd6ecf",
+			},
+			{
+				name: "channelID_shop",
+				type: "string",
+				title: "[Shop] Channel ID:",
+				placeholder: "69",
+				default: "",
+			},
+			{
+				name: "size_shop",
+				type: "select",
+				title: "[Shop] Image size:",
+				options: ["128x128", "256x256"],
+				default: "0",
+			},
+			{
+				name: "description_shop",
+				type: "multiline",
+				title: "[Shop] Channel Description [Placeholders: %shop%]:",
+				placeholder: "%shop%",
+				default: "%shop%",
+			},
+			{
+				name: "channelID_upcoming",
+				type: "string",
+				title: "[Upcoming items] Channel ID:",
+				placeholder: "69",
+				default: "",
+			},
+			{
+				name: "size_upcoming",
+				type: "select",
+				title: "[Upcoming items] Image size:",
+				options: ["128x128", "256x256"],
+				default: "0",
+			},
+			{
+				name: "description_upcoming",
+				type: "multiline",
+				title: "[Upcoming items] Channel Description [Placeholders: %upcoming%]:",
+				placeholder: "%upcoming%",
+				default: "%upcoming%",
+			},
+		],
+	},
+	(_, config, { name, version, author }) => {
+		const engine = require("engine");
+		const backend = require("backend");
+		const http = require("http");
 
-    const engine = require("engine");
-    const backend = require("backend");
-    const event = require("event");
-    const http = require("http");
+		const log = msg => !!config.logEnabled && engine.log(msg);
 
-    const { apiKey, interval, channels, logEnabled } = config;
+		// Variables
 
-    // Update on connection
-    if (backend.isConnected()) updateData();
-    event.on("connect", updateData);
-    // Schedule next update
-    updateSchedule();
-    // Auto update if needed
-    if (interval) setInterval(updateData, interval * 60 * 1000);
+		const { key } = config;
 
-    async function updateData() {
-        if (!backend.isConnected()) return;
-        if ((channels || []).length <= 0) return logMsg("No channels configured!");
+		const SIZES = {
+			0: 128,
+			1: 256,
+		};
 
-        const { daily: dailyItems, featured: featuredItems } = await getShopItems();
-        const upcomingItems = await getUpcomingItems();
+		const SHOP = {
+			size: Object.keys(SIZES).includes(config.size_shop) ? SIZES[config.size_shop] : SIZES[0],
 
-        if ([dailyItems, featuredItems, upcomingItems].some(items => !items))
-            return logMsg("Error while receiving items..");
+			channelID: config.channelID_shop || 0,
+			channelDescription: config.description_shop || "%shop%",
+		};
 
-        channels.forEach(channelData => {
-            const { id } = channelData;
-            let { description } = channelData;
+		const UPCOMING = {
+			size: Object.keys(SIZES).includes(config.size_upcoming)
+				? SIZES[config.size_upcoming]
+				: SIZES[0],
 
-            const channel = backend.getChannelByID(id);
+			channelID: config.channelID_upcoming || 0,
+			channelDescription: config.description_upcoming || "%upcoming%",
+		};
 
-            if (channel) {
-                if (description && description.length > 0) {
-                    const regexp = new RegExp(/%(?<itemType>daily|featured|upcoming)-(?<size>\d+)-(?<imgType>full|noinfo)-(?<columns>\d)%/, "gi");
-                    const matches = [ /*...description.matchAll(regexp) ---> ES6 :( */ ];
+		if (!SHOP.channelID && !UPCOMING.channelID)
+			return log("Channel IDs are empty, no reason to continue working.. script exiting!");
 
-                    let m;
-                    while (m = regexp.exec(description))
-                        matches.push(m);
+		const URL_SHOP = "https://fortniteapi.io/v2/shop?lang=en";
+		const URL_UPCOMING = "https://fortniteapi.io/v2/items/upcoming?lang=en";
 
-                    matches.forEach(match => {
-                        const fullMatch = match[0];
-                        //const { itemType, size, imgType, columns } = match.groups; ---> ES6 :(
-                        const itemType = match[1];
-                        const size = match[2];
-                        const imgType = match[3];
-                        const columns = match[4];
+		setTimeout(fetchData, 15 * 1000);
+		setInterval(fetchData, 180 * 1000);
 
-                        let items = [];
+		async function fetchData() {
+			if (!backend.isConnected())
+				return log("Backend is not connected, can not update Fortnite shop.");
 
-                        switch (itemType) {
-                            case "daily":
-                                items = dailyItems;
-                                break;
-                            case "featured":
-                                items = featuredItems;
-                                break;
-                            case "upcoming":
-                                items = upcomingItems;
-                                break;
-                            default:
-                                throw new Error("Invalid item type!");
-                        }
+			const shop = SHOP.channelID ? (await fetchItems("shop", URL_SHOP)).shop : null;
+			const upcoming = UPCOMING.channelID
+				? (await fetchItems("upcoming", URL_UPCOMING)).items
+				: null;
 
-                        description = description.replace(fullMatch, itemsDesc(items, size, imgType, columns));
-                    });
+			if (shop === false || upcoming === false)
+				return log("Something went wrong, fetch data ended.");
 
-                    if (description.length > 8192)
-                        logMsg(`Channel (ID: ${id}) description is too long (${description.length})!`);
+			const itemsImagesIntoArray = (data, imageSize, type) => {
+				return data.reduce((allItems, currentItem) => {
+					let image = null;
+					let images = null;
 
-                    channel.setDescription(description);
-                } else logMsg("Channel description empty!");
-            } else logMsg("Error, channel not found!")
-        });
-    }
+					if (type === "shop") {
+						if (Array.isArray(currentItem.displayAssets) && currentItem.displayAssets.length >= 1)
+							images = currentItem.displayAssets[0];
+					} else if (type === "upcoming") {
+						if (currentItem.images && Object.keys(currentItem.images).length >= 1)
+							images = currentItem.images;
+					}
 
-    async function getShopItems() {
-        const httpParams = {
-            method: "GET",
-            timeout: 5000,
-            url: "https://fortniteapi.io/shop",
-            headers: {
-                'Authorization': apiKey
-            }
-        };
+					if (images) {
+						if (images.full_background) image = images.full_background;
+						else if (images.background) image = images.background;
+						else if (images.url) image = images.url;
 
-        let shopItems = false;
+						if (image) {
+							image += "?width=" + imageSize;
+							allItems.push(image);
+						}
+					}
 
-        try {
-            const { error, response } = await httpRequest(httpParams);
+					return allItems;
+				}, []);
+			};
 
-            if (error) throw new Error(`Error: ${error}`);
-            if (response.statusCode != 200) throw new Error(`HTTP Error (${httpParams.url}) - Status [${response.statusCode}]: ${response.status}`);
+			const updateChannel = (channelID, channelDescription, imageSize, data, placeholder, type) => {
+				try {
+					const items = itemsImagesIntoArray(data, imageSize, type);
 
-            const shop = JSON.parse(response.data);
+					/* Prepare channel description */
 
-            const daily = formatItems([...shop.specialDaily, ...shop.daily]);
-            const featured = formatItems([...shop.specialFeatured, ...shop.featured]);
+					let text = "";
 
-            shopItems = {
-                daily,
-                featured
-            };
-        } catch (err) {
-            console.log(err);
-            engine.log(err.toString());
-        } finally {
-            return shopItems;
-        }
-    }
+					for (const itemImg of items) text += `[img]${itemImg}[/img]`;
 
-    async function getUpcomingItems() {
-        const httpParams = {
-            method: "GET",
-            timeout: 5000,
-            url: "https://fortniteapi.io/items/upcoming",
-            headers: {
-                'Authorization': apiKey
-            }
-        };
+					/* Update channel description */
 
-        let upcomingItems = false;
+					const channel = backend.getChannelByID(channelID);
 
-        try {
-            const { error, response } = await httpRequest(httpParams);
+					if (channel) {
+						channel.setDescription(channelDescription.replace(placeholder, text));
+					} else {
+						log(`Channel with ID: ${channelID} not found.`);
+					}
+				} catch (err) {
+					console.log(err);
+					return false;
+				}
+				return true;
+			};
 
-            if (error) throw new Error(`Error: ${error}`);
-            if (response.statusCode != 200) throw new Error(`HTTP Error (${httpParams.url}) - Status [${response.statusCode}]: ${response.status}`);
+			if (
+				SHOP.channelID &&
+				updateChannel(SHOP.channelID, SHOP.channelDescription, SHOP.size, shop, "%shop%", "shop")
+			) {
+				log("Shop items in channel updated successfully!");
+			} else {
+				if (SHOP.channelID) log("Something went wrong when updating channel with shop items!");
+			}
 
-            upcomingItems = JSON.parse(response.data);
-            upcomingItems = upcomingItems.items;
-            upcomingItems = formatItems(upcomingItems);
-        } catch (err) {
-            console.log(err);
-            engine.log(err.toString());
-        } finally {
-            return upcomingItems;
-        }
-    }
+			if (
+				UPCOMING.channelID &&
+				updateChannel(
+					UPCOMING.channelID,
+					UPCOMING.channelDescription,
+					UPCOMING.size,
+					upcoming,
+					"%upcoming%",
+					"upcoming"
+				)
+			) {
+				log("Upcoming items in channel updated successfully!");
+			} else {
+				if (UPCOMING.channelID)
+					log("Something went wrong when updating channel with Upcoming items!");
+			}
+		}
 
-    async function updateSchedule() {
-        const httpParams = {
-            method: "GET",
-            timeout: 5000,
-            url: "https://fortniteapi.io/shop",
-            headers: {
-                'Authorization': apiKey
-            }
-        };
+		async function fetchItems(type, url) {
+			log("Fetching " + type + " items..");
 
-        let endingDates = false;
+			let response = null;
 
-        try {
-            const { error, response } = await httpRequest(httpParams);
+			try {
+				response = await httpRequest({ url, headers: { Authorization: key } });
 
-            if (error) throw new Error(`Error: ${error}`);
-            if (response.statusCode != 200) throw new Error(`HTTP Error (${httpParams.url}) - Status [${response.statusCode}]: ${response.status}`);
+				if (!response)
+					throw new Error(
+						"Something went wrong with the Fortnite items (" + type + ") HTTP request."
+					);
 
-            const shop = JSON.parse(response.data);
+				if (response.statusCode !== 200)
+					throw new Error(`HTTP Error (${response.statusCode}): ${response.status}`);
 
-            endingDates = shop.endingDates;
-        } catch (err) {
-            console.log(err);
-            engine.log(err.toString());
-            setTimeout(updateSchedule, 10 * 1000); // log error and try again..
-            return;
-        }
+				response.data = JSON.parse(response.data.toString());
 
-        if (!endingDates) return logMsg("Error, while scheduling data update!");
+				const { result } = response.data;
 
-        const { daily, featured } = endingDates;
-        const dateD = new Date(daily);
-        const dateF = new Date(featured);
-        const dateSchedule = ((dateD > dateF) ? dateD : dateF);
-        const safeTime = 3 * 60 * 1000; // wait 3 more minutes, to be safe
-        const msTillUpdate = (dateSchedule.getTime() + safeTime) - Date.now();
+				if (result !== true)
+					throw new Error("API responded with false result, something went wrong.");
 
-        logMsg("Update is scheduled in (ms): " + msTillUpdate);
+				log("Fetch request of Fortnite items (" + type + ") response is 200 (OK), successful.");
+			} catch (err) {
+				console.log(err);
+				return false;
+			}
 
-        setTimeout(() => {
-            logMsg("Scheduled update started!");
-            updateData();
-            updateSchedule();
-        }, msTillUpdate);
-    }
+			return response.data;
+		}
 
-    function formatItems(items) {
-        return items.map(item => ({
-            "name": item.name,
-            "type": item.type,
-            "rarity": item.rarity,
-            "price": item.price,
-            "img": getImg(item)
-        }));
-    }
+		function httpRequest({ method = "GET", url = "", timeout = 5000, body = "", headers = {} }) {
+			return new Promise((resolve, reject) => {
+				http.simpleRequest({ method, url, timeout, body, headers }, (error, response) => {
+					if (error) reject(error);
+					else resolve(response);
+				});
+			});
+		}
 
-    function getImg(item) {
-        const regex = new RegExp(/https:\/\/media.fortniteapi.io\/images\/(?<id>.*?)\/.*$/);
-        const match = (item.icon || item.images.background || item.images.featured).match(regex);
-
-        if (match) {
-            const id = match[1]; // match.groups.id; ---> ES6 :(
-            return {
-                "full": `https://media.fortniteapi.io/images/${id}/background_full.en.png`,
-                "noinfo": `https://media.fortniteapi.io/images/${id}/background.png`
-            };
-        } else throw new Error("Error while receiving image url!");
-    }
-
-    function arrSplitBy(array = [], splitNum = 0) {
-        if (splitNum == 0) return array;
-        return (array || []).reduce((acc, curr, index) => {
-            if (index % splitNum === 0)
-                acc.push([]);
-            acc[acc.length - 1].push(curr);
-            return acc;
-        }, []);
-    }
-
-    function itemsDesc(items, imgSize, imgType, columns) {
-        /* Parsing */
-
-        imgSize = parseInt(imgSize);
-        columns = parseInt(columns);
-        imgType = imgType.toLowerCase();
-
-        /* Description */
-
-        let itemsDesc = "";
-
-        if (columns === 0) {
-            items.forEach(({ img }) => itemsDesc += "[img]" + img[imgType] + "?width=" + imgSize + "[/img]");
-        } else {
-            const itemRows = arrSplitBy(items, columns);
-
-            itemRows.forEach(itemRow => {
-                itemsDesc += "[tr]";
-
-                itemRow.forEach(({ img }) => {
-                    itemsDesc += "[td]";
-                    itemsDesc += "[img]" + img[imgType] + "?width=" + imgSize + "[/img]";
-                    itemsDesc += "[/td]";
-                });
-
-                itemsDesc += "[/tr]";
-            });
-
-            itemsDesc = "[table]" + itemsDesc + "[/table]";
-        }
-
-        return itemsDesc;
-    }
-
-    function httpRequest(params) {
-        return new Promise(
-            (resolve, reject) => {
-                try {
-                    http.simpleRequest(params, (error, response) => {
-                        return resolve({
-                            "error": error,
-                            "response": response
-                        });
-                    });
-                } catch (err) {
-                    reject(err);
-                }
-            }
-        );
-    }
-
-    function logMsg(msg) {
-        return !!logEnabled && engine.log(msg);
-    }
-
-    // SCRIPT LOADED SUCCCESFULLY
-    engine.log(`\n[Script] "${name}" [Version] "${version}" [Author] "${author}"`);
-});
+		engine.log(`\n[LOADED] Script: "${name}" Version: "${version}" Author: "${author}"`);
+	}
+);

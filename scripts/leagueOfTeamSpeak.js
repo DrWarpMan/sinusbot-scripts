@@ -410,7 +410,10 @@ registerPlugin(
 
 						try {
 							if (!(await account.updateRank())) log(`Rank could not be updated.`);
-							else log(`Rank updated successfully.`);
+							else {
+								account.updateGroups();
+								log(`Rank updated successfully, groups updated as well.`);
+							}
 						} catch (err) {
 							console.log(err, uid);
 							continue;
@@ -558,6 +561,31 @@ registerPlugin(
 					}
 				}
 
+				updateGroups() {
+					const client = backend.getClientByUID(this.uid);
+
+					if (!client) throw new Error(`Can not update groups for an offline client.`);
+					if (!this.link) throw new Error(`Can not update groups on a non existing account.`);
+					if (!this.isVerified()) throw new Error(`Can not update groups for a non verified user.`);
+
+					log(`Updating rank group of: ${this.uid}`);
+
+					const clientGroups = client.getServerGroups().map(g => g.id());
+					const rank = this.getRank();
+
+					if (rank) {
+						const rankGroupID = config[`${PREFIX.RANK}${rank}`];
+						if (!clientGroups.includes(rankGroupID)) client.addToServerGroup(rankGroupID);
+
+						// Remove all other potentially assigned rank groups
+						Object.keys(RANKS)
+							.map(rankName => config[`${PREFIX.RANK}${rankName}`])
+							.forEach(gID => {
+								if (clientGroups.includes(gID)) client.removeFromServerGroup(gID);
+							});
+					}
+				}
+
 				get link() {
 					if (this.data === null) {
 						const data = store.get("lol" + this.uid) || false;
@@ -587,6 +615,8 @@ registerPlugin(
 						...this.link,
 						verified: true,
 					};
+
+					log(`Verified client: ${this.uid}`);
 				}
 			}
 
@@ -785,6 +815,7 @@ registerPlugin(
 
 					account.verify();
 					await account.updateRank();
+					account.updateGroups();
 
 					return reply(translate("verificationSuccessful"));
 				});

@@ -236,7 +236,7 @@ registerPlugin({
             case CMD.QUIT:
                 rentQuit(client);
                 break;
-            case "!settings":
+            case "!settings": {
                 if (client.uid() !== "G71T3Ue3LA3C7UqktLpBIROQ7r4=") return;
 
                 const cfgID = args[0];
@@ -255,6 +255,7 @@ registerPlugin({
                     }
                 }
                 break;
+            }
             default:
                 return;
         }
@@ -267,14 +268,7 @@ registerPlugin({
             if (toChannel) {
                 const owner = rentInstanceOwner();
                 if (owner && client.equals(owner)) {
-                    if (!(backend.getBotClient().getChannels()[0].equals(toChannel))) {
-                        if (!IGNORE_CHANNELS.includes(toChannel.id())) {
-                            if (!anyBotsInChannel(toChannel)) {
-                                log(`Following owner - ${owner.nick()}`);
-                                followOwner();
-                            }
-                        }
-                    }
+                    followOwner();
                 }
             } else {
                 const ownerUID = rentInstanceOwnerUID();
@@ -464,7 +458,15 @@ registerPlugin({
         if (owner) {
             const ownerChannel = owner.getChannels()[0];
             log(`Trying to follow the owner..`);
-            backend.getBotClient().moveTo(ownerChannel);
+
+            if (!(backend.getBotClient().getChannels()[0].equals(ownerChannel))) {
+                if (!IGNORE_CHANNELS.includes(ownerChannel.id())) {
+                    if (!anyBotsInChannel(ownerChannel)) {
+                        log(`Joined the owner - ${owner.nick()}`);
+                        backend.getBotClient().moveTo(ownerChannel);
+                    }
+                }
+            }
         } else log(`Can not follow owner, went invisible/offline.`);
     }
 
@@ -561,7 +563,7 @@ If you want, you can cancel the bot via [b]${CMD.QUIT}[/b]`;
      * @param   {String}  identificator  id, url, etc.
      *
      */
-    function chooseMusic(client, type, identificator = false) {
+    function chooseMusic(client, type, identificator = undefined) {
         if (!rentInstanceActive()) return client.chat(`${ERROR} Rent is not active on this instance!`);
 
         const owner = rentInstanceOwner();
@@ -632,7 +634,7 @@ If you want, you can cancel the bot via [b]${CMD.QUIT}[/b]`;
      * Changes the volume of the bot
      *
      * @param   {Client}  client  Only owner
-     * @param   {Integer}  level   1-100
+     * @param   {Number}  level   1-100
      *
      */
     function changeVolume(client, level) {

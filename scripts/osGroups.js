@@ -48,7 +48,7 @@ registerPlugin({
 }, (_, config, { name, version, author }) => {
 
     const backend = require("backend");
-    const engine = require("event");
+    const engine = require("engine");
     const event = require("event");
 
     const { logEnabled, groupW, groupL, groupM, groupA, groupI, ignoredGroupIDs } = config;

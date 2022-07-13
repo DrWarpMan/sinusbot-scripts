@@ -53,7 +53,7 @@ registerPlugin({ // consider anti-spam, message upon assign?
 
     logMsg("Filtering invalid data..");
     groups = groups.filter(({ groupID, neededDays, neededConnections }) => {
-        return [groupID, neededDays, neededConnections].every(val => isInt(val) >= 0);
+        return [groupID, neededDays, neededConnections].every(val => isInt(val));
     });
 
     logMsg("Sorting group data..");
@@ -84,8 +84,8 @@ registerPlugin({ // consider anti-spam, message upon assign?
             if (firstConnection && connections) {
                 logMsg(`Checking client: ${client.nick()}`);
 
-                const dateNow = new Date();
-                const dateConnected = new Date(firstConnection);
+                const dateNow = new Date().getTime();
+                const dateConnected = new Date(firstConnection).getTime();
                 const dateDiff = dateNow - dateConnected;
 
                 const oneDay = 24 * 60 * 60 * 1000;
