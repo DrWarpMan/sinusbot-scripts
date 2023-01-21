@@ -1,0 +1,21 @@
+{
+  "env": {
+    "commonjs": true,
+    "es2018": true
+  },
+  "extends": "eslint:recommended",
+  "overrides": [],
+  "globals": {
+    "registerPlugin": "readonly" // sinusbot
+  },
+  "parserOptions": {
+    "ecmaVersion": 2018
+  },
+  "rules": {
+    "indent": ["error", "tab"],
+    "linebreak-style": ["error", "windows"],
+    "quotes": ["error", "double"],
+    "semi": ["error", "always"],
+    "no-unused-vars": ["error", { "argsIgnorePattern": "^_" }]
+  }
+}

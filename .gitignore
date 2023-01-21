@@ -1,5 +1,6 @@
-.*
+node_modules
+
+# default scripts
 scripts/command.js
 scripts/sinusbot-commands.js
 scripts/ServerQuery.js
-node_modules
