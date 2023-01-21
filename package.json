@@ -1,26 +1,11 @@
 {
-	"name": "sinusbot-scripts",
-	"version": "1.0.0",
-	"description": "Sinusbot Scripts",
-	"main": "index.js",
-	"scripts": {},
-	"repository": {
-		"type": "git",
-		"url": "git+https://github.com/DrWarpMan/sinusbot-scripts.git"
-	},
-	"keywords": [],
-	"author": "DrWarpMan",
-	"license": "MIT",
-	"bugs": {
-		"url": "https://github.com/DrWarpMan/sinusbot-scripts/issues"
-	},
-	"homepage": "https://github.com/DrWarpMan/sinusbot-scripts#readme",
-	"dependencies": {
-		"sinusbot-scripting-engine": "^1.0.18"
-	},
-	"devDependencies": {
-		"eslint": "^7.32.0",
-		"eslint-config-prettier": "^8.3.0",
-		"prettier": "2.3.2"
-	}
+  "name": "sinusbot-scripts",
+  "description": "CI tools",
+  "author": "DrWarpMan <drwarpman@gmail.com>",
+  "devDependencies": {
+    "eslint": "^8.32.0",
+    "prettier": "2.8.3",
+    "sinusbot-scripting-engine": "^1.0.18"
+  },
+	"license": "MIT"
 }
