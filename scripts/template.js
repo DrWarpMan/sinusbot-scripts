@@ -23,13 +23,8 @@ registerPlugin(
 	(_, config, { name, version, author }) => {
 		const engine = require("engine");
 
-		// eslint-disable-next-line no-unused-vars
 		const log = msg => !!config.logEnabled && engine.log(msg);
 
-		// Variables
-
-		engine.log(
-			`\n[LOADED] Script: "${name}" Version: "${version}" Author: "${author}"`
-		);
+		engine.log(`Loaded: ${name} | v${version} | ${author}`);
 	}
 );
