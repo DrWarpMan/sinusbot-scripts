@@ -302,7 +302,7 @@ registerPlugin(
 				try {
 					http.simpleRequest(config, (err, res) => {
 						if (err) {
-							return reject(new Error(err));
+							return reject(err);
 						}
 
 						return resolve(res);
