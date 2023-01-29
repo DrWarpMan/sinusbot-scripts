@@ -313,8 +313,6 @@ registerPlugin(
 			});
 		};
 
-		engine.log(
-			`\n[LOADED] Script: "${name}" Version: "${version}" Author: "${author}"`
-		);
+		engine.log(`Loaded: ${name} | v${version} | ${author}`);
 	}
 );
