@@ -1,7 +1,7 @@
 registerPlugin(
 	{
 		name: "Steam Status",
-		version: "1.0.0",
+		version: "1.0.1",
 		description: "Shows Steam status of configured Steam users in specified channel name",
 		author: "DrWarpMan <drwarpman@gmail.com>",
 		backends: ["ts3"],
@@ -236,47 +236,45 @@ registerPlugin(
 				}
 
 				try {
-					const { statusCode, data: body } = await GetPlayerSummaries(steamUser.steamID64);
-					const response = JSON.parse(body.toString());
-
-					if (statusCode === 200) {
-						const { response: { players } } = response;
-
-						const playerSummary = players[0];
-
-						const { personaname: nick = "", gameextrainfo: game = "" } = playerSummary;
-						let { personastate: status = 0 } = playerSummary;
-
-						if (game) status = 7;
-
-						log(`Status: ${status}`);
-
-						const statusText =
-                            steamUser[`status_${StatusEnum_ish[status]}`]
-                            || config[`status_${StatusEnum_ish[status]}`]
-                            || "";
-
-
-						let channelName = statusText.replace("%game%", game).replace("%nick%", nick);
-						let overflow = CHANNEL_NAME_LENGTH - channelName.length;
-						if (overflow < 0) {
-							overflow = Math.abs(overflow);
-							log(`Channel name would overflow (${overflow}): ${channelName}, shortening..`);
-							channelName = channelName.substring(0, channelName.length - overflow);
-						}
-
-						if (channelName.length <= 0) {
-							log("Channel name resulted to be empty? Skipping user.");
-							continue;
-						}
-
-						log(`Channel name: ${channelName}`);
-						channel.setName(channelName);
-					} else {
-						throw new Error(
-							`GetPlayerSummaries - Status Code: ${statusCode} Message: ${response.error || "Unknown"}`
-						);
+					const { statusCode, status: httpStatus, data: body } = await GetPlayerSummaries(steamUser.steamID64);
+					
+					if(statusCode !== 200) {
+						throw new Error(`HTTP error - ${statusCode}: ${httpStatus}`);
 					}
+	
+					const data = JSON.parse(body.toString());
+					
+					const { response: { players } } = data;
+					const playerSummary = players[0];
+
+					const { personaname: nick = "", gameextrainfo: game = "" } = playerSummary;
+					let { personastate: status = 0 } = playerSummary;
+
+					if (game) status = 7;
+
+					log(`Status: ${status}`);
+
+					const statusText =
+						steamUser[`status_${StatusEnum_ish[status]}`]
+						|| config[`status_${StatusEnum_ish[status]}`]
+						|| "";
+
+
+					let channelName = statusText.replace("%game%", game).replace("%nick%", nick);
+					let overflow = CHANNEL_NAME_LENGTH - channelName.length;
+					if (overflow < 0) {
+						overflow = Math.abs(overflow);
+						log(`Channel name would overflow (${overflow}): ${channelName}, shortening..`);
+						channelName = channelName.substring(0, channelName.length - overflow);
+					}
+
+					if (channelName.length <= 0) {
+						log("Channel name resulted to be empty? Skipping user.");
+						continue;
+					}
+
+					log(`Channel name: ${channelName}`);
+					channel.setName(channelName);
 				} catch (err) {
 					console.log(err);
 					log("Error ocurred, skipping user.");
