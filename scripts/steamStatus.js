@@ -293,7 +293,7 @@ registerPlugin(
 				url: "http://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/"
                     + `?key=${APIKey}`
                     + `&steamids=${steamID64}`,
-				timeout: 5000,
+				timeout: 10000,
 			});
 		};
 
