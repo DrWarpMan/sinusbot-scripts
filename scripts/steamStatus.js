@@ -2,7 +2,7 @@ registerPlugin(
 	{
 		name: "Steam Status",
 		version: "1.0.0",
-		description: "Shows Steam status of Steam users in specified channels",
+		description: "Shows Steam status of configured Steam users in specified channel name",
 		author: "DrWarpMan <drwarpman@gmail.com>",
 		backends: ["ts3"],
 		engine: ">= 1.0",
