@@ -1,7 +1,7 @@
 registerPlugin(
 	{
 		name: "Steam Status",
-		version: "1.0.1",
+		version: "1.1.0",
 		description: "Shows Steam status of configured Steam users in specified channel name",
 		author: "DrWarpMan <drwarpman@gmail.com>",
 		backends: ["ts3"],
@@ -13,10 +13,11 @@ registerPlugin(
 		voiceCommands: [],
 		vars: [
 			{
-				name: "logEnabled",
-				type: "checkbox",
-				title: "Check to enable detailed logs",
-				default: false,
+				name: "logLevel",
+				type: "select",
+				title: "Log Level:",
+				options: ["ERROR", "WARN", "INFO"],
+				default: "0",
 			},
 			{
 				name: "APIKey",
@@ -32,75 +33,84 @@ registerPlugin(
 				placeholder: "1",
 			},
 			{
-				name: "showDefaultStatusConfiguration",
+				name: "showDefaultStatusConfig",
 				type: "checkbox",
-				title: "Show default status configuration",
+				title: "Show default channel name configuration",
 				default: false,
 			},
 			{
-				name: "status_offline",
+				name: "status_Offline",
 				type: "string",
-				title: "[Default] Status Text Offline:",
-				placeholder: "User %nick% is offline",
-				default: "User %nick% is offline",
-				conditions: [{ field: "showDefaultStatusConfiguration", value: 1 }],
+				title: "Status Text Offline:",
+				placeholder: "%personaname% status: Offline",
+				default: "%personaname% status: Offline",
+				conditions: [{ field: "showDefaultStatusConfig", value: 1 }],
+				indent: 1,
 			},
 			{
-				name: "status_online",
+				name: "status_Online",
 				type: "string",
-				title: "[Default] Status Text - Online:",
-				placeholder: "User %nick% is online",
-				default: "User %nick% is online",
-				conditions: [{ field: "showDefaultStatusConfiguration", value: 1 }],
+				title: "Status Text Online:",
+				placeholder: "%personaname% status: Online",
+				default: "%personaname% status: Online",
+				conditions: [{ field: "showDefaultStatusConfig", value: 1 }],
+				indent: 1,
 			},
 			{
-				name: "status_busy",
+				name: "status_Busy",
 				type: "string",
-				title: "[Default] Status Text - Busy:",
-				placeholder: "User %nick% is busy",
-				default: "User %nick% is busy",
-				conditions: [{ field: "showDefaultStatusConfiguration", value: 1 }],
+				title: "Status Text Busy:",
+				placeholder: "%personaname% status: Busy",
+				default: "%personaname% status: Busy",
+				conditions: [{ field: "showDefaultStatusConfig", value: 1 }],
+				indent: 1,
 			},
 			{
-				name: "status_away",
+				name: "status_Away",
 				type: "string",
-				title: "[Default] Status Text - Away:",
-				placeholder: "User %nick% is away",
-				default: "User %nick% is away",
-				conditions: [{ field: "showDefaultStatusConfiguration", value: 1 }],
+				title: "Status Text Away:",
+				placeholder: "%personaname% status: Away",
+				default: "%personaname% status: Away",
+				conditions: [{ field: "showDefaultStatusConfig", value: 1 }],
+				indent: 1,
 			},
 			{
-				name: "status_snooze",
+				name: "status_Snooze",
 				type: "string",
-				title: "[Default] Status Text - Snooze:",
-				placeholder: "User %nick% is sleeping",
-				default: "User %nick% is sleeping",
-				conditions: [{ field: "showDefaultStatusConfiguration", value: 1 }],
+				title: "Status Text Snooze:",
+				placeholder: "%personaname% status: Snooze",
+				default: "%personaname% status: Snooze",
+				conditions: [{ field: "showDefaultStatusConfig", value: 1 }],
+				indent: 1,
 			},
 			{
-				name: "status_ltt",
+				name: "status_LookingToTrade",
 				type: "string",
-				title: "[Default] Status Text - Looking to trade:",
-				placeholder: "User %nick% is looking to trade",
-				default: "User %nick% is looking to trade",
-				conditions: [{ field: "showDefaultStatusConfiguration", value: 1 }],
+				title: "Status Text Looking To Trade:",
+				placeholder: "%personaname% status: Looking to trade",
+				default: "%personaname% status: Looking to trade",
+				conditions: [{ field: "showDefaultStatusConfig", value: 1 }],
+				indent: 1,
 			},
 			{
-				name: "status_ltp",
+				name: "status_LookingToPlay",
 				type: "string",
-				title: "[Default] Status Text - Looking to play:",
-				placeholder: "User %nick% is looking to play",
-				default: "User %nick% is looking to play",
-				conditions: [{ field: "showDefaultStatusConfiguration", value: 1 }],
+				title: "Status Text Looking To Play:",
+				placeholder: "%personaname% status: Looking to play",
+				default: "%personaname% status: Looking to play",
+				conditions: [{ field: "showDefaultStatusConfig", value: 1 }],
+				indent: 1,
 			},
+			/*
 			{
-				name: "status_playing",
+				name: "status_Invisible",
 				type: "string",
-				title: "[Default] Status Text - Playing:",
-				placeholder: "User %nick% is playing %game%",
-				default: "User %nick% is playing %game%",
-				conditions: [{ field: "showDefaultStatusConfiguration", value: 1 }],
-			},
+				title: "Status Text Invisible:",
+				placeholder: "%personaname% status: Invisible",
+				default: "%personaname% status: Invisible",
+				conditions: [{ field: "showDefaultStatusConfig", value: 1 }],
+				indent: 1,
+			},*/
 			{
 				name: "steamUsers",
 				type: "array",
@@ -119,62 +129,54 @@ registerPlugin(
 						title: "Steam ID (64-bit Steam ID):",
 						placeholder: "76561198848779214"
 					},
-
 					{
-						name: "status_offline",
+						name: "status_Offline",
 						type: "string",
 						title: "[Custom] Status Text Offline:",
-						placeholder: "User %nick% is offline",
+						placeholder: "%personaname% status: Offline",
 					},
 					{
-						name: "status_online",
+						name: "status_Online",
 						type: "string",
-						title: "[Custom] Status Text - Online:",
-						placeholder: "User %nick% is online",
-						default: "User %nick% is online"
+						title: "[Custom] Status Text Online:",
+						placeholder: "%personaname% status: Online",
 					},
 					{
-						name: "status_busy",
+						name: "status_Busy",
 						type: "string",
-						title: "[Custom] Status Text - Busy:",
-						placeholder: "User %nick% is busy",
-						default: "User %nick% is busy",
+						title: "[Custom] Status Text Busy:",
+						placeholder: "%personaname% status: Busy",
 					},
 					{
-						name: "status_away",
+						name: "status_Away",
 						type: "string",
-						title: "[Custom] Status Text - Away:",
-						placeholder: "User %nick% is away",
-						default: "User %nick% is away",
+						title: "[Custom] Status Text Away:",
+						placeholder: "%personaname% status: Away",
 					},
 					{
-						name: "status_snooze",
+						name: "status_Snooze",
 						type: "string",
-						title: "[Custom] Status Text - Snooze:",
-						placeholder: "User %nick% is sleeping",
-						default: "User %nick% is sleeping",
+						title: "[Custom] Status Text Snooze:",
+						placeholder: "%personaname% status: Snooze",
 					},
 					{
-						name: "status_ltt",
+						name: "status_LookingToTrade",
 						type: "string",
-						title: "[Custom] Status Text - Looking to trade:",
-						placeholder: "User %nick% is looking to trade",
-						default: "User %nick% is looking to trade",
+						title: "[Custom] Status Text Looking To Trade:",
+						placeholder: "%personaname% status: Looking to trade",
 					},
 					{
-						name: "status_ltp",
+						name: "status_LookingToPlay",
 						type: "string",
-						title: "[Custom] Status Text - Looking to play:",
-						placeholder: "User %nick% is looking to play",
-						default: "User %nick% is looking to play",
+						title: "[Custom] Status Text Looking To Play:",
+						placeholder: "%personaname% status: Looking to play",
 					},
-					{
-						name: "status_playing",
+					/*{
+						name: "status_Invisible",
 						type: "string",
-						title: "[Custom] Status Text - Playing:",
-						placeholder: "User %nick% is playing %game%",
-						default: "User %nick% is playing %game%",
-					},
+						title: "[Custom] Status Text Invisible:",
+						placeholder: "%personaname% status: In-Game",
+					},*/
 				]
 			}
 		],
@@ -183,134 +185,178 @@ registerPlugin(
 		const engine = require("engine");
 		const http = require("http");
 		const backend = require("backend");
+		const event = require("event");
 
-		const log = msg => !!config.logEnabled && engine.log(msg);
+		event.on("load", () => {
+			// Libraries
 
-		// Variables
+			const logger = require("log");
+			if(!logger) throw new Error("Log library not found!");
+			const log = logger(engine, parseInt(config.logLevel));
 
-		const { APIKey, steamUsers } = config;
+			const zod = require("zod");
+			if(!zod) throw new Error("Zod library not found!");
+			const {z} = zod;
+			
+			// Variables
 
-		let checkInterval = parseInt(config.checkInterval);
-		if (checkInterval < 1) {
-			checkInterval = 1;
-			log("Check Interval was set too low, setting back to 1 minute.");
-		}
+			const { APIKey, steamUsers } = config;
 
-		/*
-            Source: https://developer.valvesoftware.com/wiki/Steam_Web_API#GetPlayerSummaries
-            0 - Offline,
-            1 - Online, 
-            2 - Busy, 
-            3 - Away,
-            4 - Snooze, 
-            5 - Looking to trade, 
-            6 - Looking to play,
-            7 - Playing (custom)
-        */
-		const StatusEnum_ish = {
-			0: "offline",
-			1: "online",
-			2: "busy",
-			3: "away",
-			4: "snooze",
-			5: "ltt",
-			6: "ltp",
-			7: "playing",
-		};
-
-		const CHANNEL_NAME_LENGTH = 40;
-
-		async function checkSteamUsers() {
-			if (!backend.isConnected()) {
-				log("Backend not connected, skipping check.");
-				return;
+			const Type_CheckInterval = z.number().int().min(1).max(30);
+			let checkInterval = 1;
+			try {
+				checkInterval = Type_CheckInterval.parse(checkInterval);
+			} catch(err) {
+				console.log(err);
+				log("WARN", "Check Interval was set incorrectly, defaulting to 1 minute.");
 			}
 
-			for (const steamUser of steamUsers) {
-				log(`Checking ${steamUser.steamID64} (ch: ${steamUser.channelID})`);
+			const Type_Response_GetPlayerSummaries = z.object({
+				response: z.object({
+					players: z.array(z.object({
+						personaname: z.string().min(2).max(32),
+						personastate: z.number().int().min(0).max(6),
+					})).min(1).max(1)
+				})
+			});
 
-				const channel = backend.getChannelByID(steamUser.channelID);
-				if (!channel) {
-					log(`Channel with ID ${steamUser.channelID} not found, skipping user.`);
-					continue;
+			/*
+				Source:
+				- https://developer.valvesoftware.com/wiki/Steam_Web_API#GetPlayerSummaries
+				- https://raw.githubusercontent.com/DoctorMcKay/node-steam-user/master/enums/EPersonaState.js
+			*/
+			const StatusEnum = /** @type {const} */ ({
+				0: "Offline",
+				1: "Online",
+				2: "Busy",
+				3: "Away",
+				4: "Snooze",
+				5: "LookingToTrade",
+				6: "LookingToPlay",
+				//7: "Invisible",
+				"Offline": 0,
+				"Online": 1,
+				"Busy": 2,
+				"Away": 3,
+				"Snooze": 4,
+				"LookingToTrade": 5,
+				"LookingToPlay": 6,
+				//"Invisible": 7,
+			});
+
+			const CHANNEL_NAME_LENGTH = 40;
+
+			async function checkSteamUsers() {
+				if (!backend.isConnected()) {
+					log("WARN", "Backend not connected, skipping check.");
+					return;
 				}
 
-				try {
-					const { statusCode, status: httpStatus, data: body } = await GetPlayerSummaries(steamUser.steamID64);
-					
-					if(statusCode !== 200) {
-						throw new Error(`HTTP error - ${statusCode}: ${httpStatus}`);
-					}
-	
-					const data = JSON.parse(body.toString());
-					
-					const { response: { players } } = data;
-					const playerSummary = players[0];
+				log("INFO", "Checking Steam Users.");
 
-					const { personaname: nick = "", gameextrainfo: game = "" } = playerSummary;
-					let { personastate: status = 0 } = playerSummary;
+				for (const steamUser of steamUsers) {
+					const {
+						steamID64,
+						channelID
+					} = steamUser;
 
-					if (game) status = 7;
+					log("INFO",
+						`Checking: ${steamID64} (channel ID: ${channelID})`
+					);
 
-					log(`Status: ${status}`);
-
-					const statusText =
-						steamUser[`status_${StatusEnum_ish[status]}`]
-						|| config[`status_${StatusEnum_ish[status]}`]
-						|| "";
-
-
-					let channelName = statusText.replace("%game%", game).replace("%nick%", nick);
-					let overflow = CHANNEL_NAME_LENGTH - channelName.length;
-					if (overflow < 0) {
-						overflow = Math.abs(overflow);
-						log(`Channel name would overflow (${overflow}): ${channelName}, shortening..`);
-						channelName = channelName.substring(0, channelName.length - overflow);
-					}
-
-					if (channelName.length <= 0) {
-						log("Channel name resulted to be empty? Skipping user.");
+					const channel = backend.getChannelByID(channelID);
+					if (!channel) {
+						log("WARN", `Channel (${channelID}) not found, skipping..`);
 						continue;
 					}
 
-					log(`Channel name: ${channelName}`);
-					channel.setName(channelName);
-				} catch (err) {
-					console.log(err);
-					log("Error ocurred, skipping user.");
-					continue;
-				}
-			}
-		}
+					try {
+						const { statusCode, status: httpStatus, data: body } = await GetPlayerSummaries(steamID64);
+						
+						if(statusCode !== 200) {
+							throw new Error(`HTTP error - ${statusCode}: ${httpStatus}`);
+						}
+		
+						const data = JSON.parse(body.toString());
 
-		setInterval(checkSteamUsers, checkInterval * 60 * 1000);
+						const { response: { players } } = Type_Response_GetPlayerSummaries.parse(data);
+						const playerSummary = players[0];
 
-		const GetPlayerSummaries = (steamID64) => {
-			return httpRequest({
-				method: "GET",
-				url: "http://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/"
-                    + `?key=${APIKey}`
-                    + `&steamids=${steamID64}`,
-				timeout: 10000,
-			});
-		};
+						log("INFO", `Status (int): ${playerSummary.personastate}`);
 
-		const httpRequest = (config) => {
-			return new Promise((resolve, reject) => {
-				try {
-					http.simpleRequest(config, (err, res) => {
-						if (err) {
-							return reject(new Error(err));
+						/*
+						 *	CHANNEL NAME 
+						 */
+					
+						const statusText =
+							steamUser[`status_${StatusEnum[playerSummary.personastate]}`]
+							|| config[`status_${StatusEnum[playerSummary.personastate]}`]
+							|| "";
+
+						let channelName = statusText.replace("%personaname%",
+							escapePersonaNameAgainstSpacer(playerSummary.personaname.trim())
+						);
+						let overflow = CHANNEL_NAME_LENGTH - channelName.length;
+						if (overflow < 0) {
+							overflow = Math.abs(overflow);
+							log("WARN", `Channel name would overflow (${overflow}): ${channelName}, shortening..`);
+							channelName = channelName.substring(0, channelName.length - overflow);
 						}
 
-						return resolve(res);
-					});
-				} catch (err) {
-					return reject(err);
-				}
-			});
-		};
+						if (channelName.length <= 0) {
+							log("WARN", `Channel name resulted to be empty? (${steamID64})`);
+						} else {
+							log("INFO", `Final channel name: ${channelName}`);
+						}
+						
+						log("INFO", "Updating channel..");
 
-		engine.log(`Loaded: ${name} | v${version} | ${author}`);
+						// @ts-ignore
+						channel.update({
+							name: channelName || channel.name(),
+						});
+					} catch (err) {
+						console.log(err);
+						log("ERROR", `Error ocurred, skipping user ${steamID64} (ch: ${channelID})`);
+						continue;
+					}
+				}
+			}
+
+			function escapePersonaNameAgainstSpacer(str) {
+				const regex = /^\[.*spacer.*\]/gi;
+				return str.replace(regex, match => `\\${match}`);
+			}
+
+			function GetPlayerSummaries(steamID64) {
+				return httpRequest({
+					method: "GET",
+					url: "http://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/"
+						+ `?key=${APIKey}`
+						+ `&steamids=${steamID64}`,
+					timeout: 10000,
+				});
+			}
+
+			function httpRequest(config) {
+				return new Promise((resolve, reject) => {
+					try {
+						http.simpleRequest(config, (err, res) => {
+							if (err) {
+								return reject(new Error(err));
+							}
+
+							return resolve(res);
+						});
+					} catch (err) {
+						return reject(err);
+					}
+				});
+			}
+
+			setInterval(checkSteamUsers, checkInterval * 60 * 1000);
+
+			engine.log(`Loaded: ${name} | v${version} | ${author}`);
+		});
 	}
 );
