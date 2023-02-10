@@ -13,18 +13,26 @@ registerPlugin(
 		voiceCommands: [],
 		vars: [
 			{
-				name: "logEnabled",
-				type: "checkbox",
-				title: "Check to enable detailed logs",
-				default: false,
+				name: "logLevel",
+				type: "select",
+				title: "Log Level:",
+				options: ["ERROR", "WARN", "INFO"],
+				default: "0",
 			},
 		],
 	},
 	(_, config, { name, version, author }) => {
 		const engine = require("engine");
+		const event = require("event");
 
-		const log = msg => !!config.logEnabled && engine.log(msg);
+		event.on("load", () => {
+			// Libraries
 
-		engine.log(`Loaded: ${name} | v${version} | ${author}`);
+			const logger = require("log");
+			if(!logger) throw new Error("Log library not found!");
+			const log = logger(engine, parseInt(config.logLevel));
+
+			engine.log(`Loaded: ${name} | v${version} | ${author}`);
+		});
 	}
 );
