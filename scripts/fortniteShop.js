@@ -48,6 +48,13 @@ registerPlugin(
 				default: "%shop%",
 			},
 			{
+				name: "shopSubchannelName",
+				type: "string",
+				title: "[Shop] Subchannel Name (max. 40 characters including placeholder) [Required placeholders: %page%]:",
+				placeholder: "Page %page%",
+				default: "Page %page%",
+			},
+			{
 				name: "upcomingChannelID",
 				type: "string",
 				title: "[Upcoming Items] Channel ID:",
@@ -67,6 +74,13 @@ registerPlugin(
 				title: "[Upcoming Items] Channel Description [Placeholders: %upcoming%]:",
 				placeholder: "%upcoming%",
 				default: "%upcoming%",
+			},
+			{
+				name: "upcomingSubchannelName",
+				type: "string",
+				title: "[Upcoming] Subchannel Name (max. 40 characters including placeholder) [Required placeholders: %page%]:",
+				placeholder: "Page %page%",
+				default: "Page %shop%",
 			},
 		],
 	},
@@ -95,9 +109,11 @@ registerPlugin(
 				shopChannelID,
 				shopImageSize, 
 				shopDescription, 
+				shopSubchannelName,
 				upcomingChannelID,
 				upcomingImageSize,
-				upcomingDescription 
+				upcomingDescription,
+				upcomingSubchannelName
 			} = config;
 
 			/* DO NOT MODIFY AT ANY COSTS */
@@ -115,12 +131,14 @@ registerPlugin(
 					size: SIZES[shopImageSize] || SIZES[0],
 					channelDescription: shopDescription,
 					url: "https://fortniteapi.io/v2/shop",
+					subchannelName: shopSubchannelName,
 				},
 				upcoming: {
 					channelID: upcomingChannelID || null,
 					size: SIZES[upcomingImageSize] || SIZES[0],
 					channelDescription: upcomingDescription,
 					url: "https://fortniteapi.io/v2/items/upcoming",
+					subchannelName: upcomingSubchannelName,
 				}
 			};
 
@@ -169,7 +187,7 @@ registerPlugin(
 
 				for(const endpointName in ENDPOINTS) {
 					try {
-						const { channelID, size, channelDescription, url } = ENDPOINTS[endpointName];
+						const { channelID, size, channelDescription, url, subchannelName } = ENDPOINTS[endpointName];
 						
 						if(channelID === null) {
 							log("INFO", `Endpoint "${endpointName}" not configured, ignoring endpoint.`);
@@ -178,6 +196,12 @@ registerPlugin(
 
 						log("INFO", `Updating endpoint: "${endpointName}"`);
 						
+						if(subchannelName.length > 40 || !subchannelName.includes("%page%"))
+						{
+							log("ERROR", "Subchannel name configuration is invalid (either too long or missing placeholder), skipping endpoint.");
+							continue;
+						}
+
 						const channel = backend.getChannelByID(channelID);
 
 						if(!channel) {
@@ -268,7 +292,7 @@ registerPlugin(
 								//@ts-ignore
 								backend.createChannel({...params, 
 									description: descriptions[i],
-									name: `Page ${i+1}`,
+									name: subchannelName.replace("%page%", i+1),
 								});
 							}	
 						}
