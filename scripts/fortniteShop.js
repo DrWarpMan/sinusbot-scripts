@@ -1,3 +1,5 @@
+// TODO: spacers?? via topic?
+
 registerPlugin(
 	{
 		name: "Fortnite Shop [fortniteapi.io]",
@@ -80,7 +82,7 @@ registerPlugin(
 				type: "string",
 				title: "[Upcoming] Subchannel Name (max. 40 characters including placeholder) [Required placeholders: %page%]:",
 				placeholder: "Page %page%",
-				default: "Page %shop%",
+				default: "Page %page%",
 			},
 		],
 	},
