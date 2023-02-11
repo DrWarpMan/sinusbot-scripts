@@ -1,8 +1,8 @@
 registerPlugin(
 	{
-		name: "Fornite Shop [fortniteapi.io]",
-		version: "2.0.0",
-		description: "Display current Fortnite shop rotation & more in a channel description",
+		name: "Fortnite Shop [fortniteapi.io]",
+		version: "4.0.0",
+		description: "Displays current Fortnite shop & upcoming items in channel description",
 		author: "DrWarpMan <drwarpman@gmail.com>",
 		backends: ["ts3"],
 		engine: ">= 1.0",
@@ -13,237 +13,332 @@ registerPlugin(
 		voiceCommands: [],
 		vars: [
 			{
-				name: "logEnabled",
-				type: "checkbox",
-				title: "Check to enable detailed logs",
-				default: false,
+				name: "logLevel",
+				type: "select",
+				title: "Log Level:",
+				options: ["ERROR", "WARN", "INFO"],
+				default: "0",
 			},
 			{
-				name: "key",
+				name: "APIKey",
 				type: "password",
-				title: "API key (get your own at fortniteapi.io):",
+				title: "API key (get your own at: fortniteapi.io):",
 				default: "",
 				placeholder: "9a378aa6-2fdd68cf-ab45fe1f-7fdd6ecf",
 			},
 			{
-				name: "channelID_shop",
+				name: "shopChannelID",
 				type: "string",
 				title: "[Shop] Channel ID:",
-				placeholder: "69",
+				placeholder: "123",
 				default: "",
 			},
 			{
-				name: "size_shop",
+				name: "shopImageSize",
 				type: "select",
 				title: "[Shop] Image size:",
 				options: ["128x128", "256x256"],
 				default: "0",
 			},
 			{
-				name: "description_shop",
+				name: "shopDescription",
 				type: "multiline",
 				title: "[Shop] Channel Description [Placeholders: %shop%]:",
 				placeholder: "%shop%",
 				default: "%shop%",
 			},
 			{
-				name: "channelID_upcoming",
+				name: "upcomingChannelID",
 				type: "string",
-				title: "[Upcoming items] Channel ID:",
-				placeholder: "69",
+				title: "[Upcoming Items] Channel ID:",
+				placeholder: "123",
 				default: "",
 			},
 			{
-				name: "size_upcoming",
+				name: "upcomingImageSize",
 				type: "select",
-				title: "[Upcoming items] Image size:",
+				title: "[Upcoming Items] Image size:",
 				options: ["128x128", "256x256"],
 				default: "0",
 			},
 			{
-				name: "description_upcoming",
+				name: "upcomingDescription",
 				type: "multiline",
-				title: "[Upcoming items] Channel Description [Placeholders: %upcoming%]:",
+				title: "[Upcoming Items] Channel Description [Placeholders: %upcoming%]:",
 				placeholder: "%upcoming%",
 				default: "%upcoming%",
 			},
 		],
 	},
 	(_, config, { name, version, author }) => {
-		const engine = require("engine");
 		const backend = require("backend");
+		const engine = require("engine");
+		const event = require("event");
 		const http = require("http");
 
-		const log = msg => !!config.logEnabled && engine.log(msg);
+		event.on("load", () => {
+			// Libraries
 
-		// Variables
+			const logger = require("log");
+			if(!logger) throw new Error("Log library not found!");
+			const log = logger(engine, parseInt(config.logLevel));
 
-		const { key } = config;
+			const zod = require("zod");
+			if(!zod) throw new Error("Zod library not found!");
+			const {z} = zod;
 
-		const SIZES = {
-			0: 128,
-			1: 256,
-		};
+			const Cron = require("croner");
+			if(!Cron) throw new Error("Croner library not found!");
 
-		const SHOP = {
-			size: Object.keys(SIZES).includes(config.size_shop) ? SIZES[config.size_shop] : SIZES[0],
+			const {
+				APIKey,
+				shopChannelID,
+				shopImageSize, 
+				shopDescription, 
+				upcomingChannelID,
+				upcomingImageSize,
+				upcomingDescription 
+			} = config;
 
-			channelID: config.channelID_shop || 0,
-			channelDescription: config.description_shop || "%shop%",
-		};
-
-		const UPCOMING = {
-			size: Object.keys(SIZES).includes(config.size_upcoming)
-				? SIZES[config.size_upcoming]
-				: SIZES[0],
-
-			channelID: config.channelID_upcoming || 0,
-			channelDescription: config.description_upcoming || "%upcoming%",
-		};
-
-		if (!SHOP.channelID && !UPCOMING.channelID)
-			return log("Channel IDs are empty, no reason to continue working.. script exiting!");
-
-		const URL_SHOP = "https://fortniteapi.io/v2/shop?lang=en";
-		const URL_UPCOMING = "https://fortniteapi.io/v2/items/upcoming?lang=en";
-
-		setTimeout(fetchData, 15 * 1000);
-		setInterval(fetchData, 180 * 1000);
-
-		async function fetchData() {
-			if (!backend.isConnected())
-				return log("Backend is not connected, can not update Fortnite shop.");
-
-			const shop = SHOP.channelID ? (await fetchItems("shop", URL_SHOP)).shop : null;
-			const upcoming = UPCOMING.channelID
-				? (await fetchItems("upcoming", URL_UPCOMING)).items
-				: null;
-
-			if (shop === false || upcoming === false)
-				return log("Something went wrong, fetch data ended.");
-
-			const itemsImagesIntoArray = (data, imageSize, type) => {
-				return data.reduce((allItems, currentItem) => {
-					let image = null;
-					let images = null;
-
-					if (type === "shop") {
-						if (Array.isArray(currentItem.displayAssets) && currentItem.displayAssets.length >= 1)
-							images = currentItem.displayAssets[0];
-					} else if (type === "upcoming") {
-						if (currentItem.images && Object.keys(currentItem.images).length >= 1)
-							images = currentItem.images;
-					}
-
-					if (images) {
-						if (images.full_background) image = images.full_background;
-						else if (images.background) image = images.background;
-						else if (images.url) image = images.url;
-
-						if (image) {
-							image += "?width=" + imageSize;
-							allItems.push(image);
-						}
-					}
-
-					return allItems;
-				}, []);
+			/* DO NOT MODIFY AT ANY COSTS */
+			const CHANNEL_DESC_SAFE_LIMIT = 7000;
+			const CHANNEL_DESC_CONFIG_LIMIT = 1000;
+	
+			const SIZES = {
+				0: 128,
+				1: 256,
+			};
+	
+			const ENDPOINTS = {
+				shop: {
+					channelID: shopChannelID || null,
+					size: SIZES[shopImageSize] || SIZES[0],
+					channelDescription: shopDescription,
+					url: "https://fortniteapi.io/v2/shop",
+				},
+				upcoming: {
+					channelID: upcomingChannelID || null,
+					size: SIZES[upcomingImageSize] || SIZES[0],
+					channelDescription: upcomingDescription,
+					url: "https://fortniteapi.io/v2/items/upcoming",
+				}
 			};
 
-			const updateChannel = (channelID, channelDescription, imageSize, data, placeholder, type) => {
-				try {
-					const items = itemsImagesIntoArray(data, imageSize, type);
+			const JSON_SCHEMA = z.object({
+				result: z.boolean(),
+				/*lastUpdate: z.object({
+					date: z.string().min(1),
+					uid: z.string().min(1),
+				}),*/
+				shop: z.array(z.object({
+					displayAssets: z.array(z.object({
+						url: z.string().min(1),
+						background: z.string().min(1),
+						full_background: z.string().min(1)
+					})).min(1),
+				})).min(1).optional(),
+				items: z.array(z.object({
+					images: z.object({
+						background: z.string().min(1),
+						full_background: z.string().min(1)
+					})
+				})).min(1).optional()
+			}).transform(({result, shop, items}) => {
+				return {
+					result,
+					images: shop
+						? shop.map(({displayAssets}) => {
+							const {url, background, full_background} = displayAssets[0];
+							return full_background || background || url;
+						})
+						: items.map(({images}) => {
+							const {background, full_background} = images;
+							return full_background || background;
+						}),
+				};
+			});
 
-					/* Prepare channel description */
+			async function updateChannels() {
+				if(!backend.isConnected())
+				{
+					log("INFO", "Backend not connected, skipping update.");
+					return;
+				} else {
+					log("INFO", "Updating channels.");
+				}
 
-					let text = "";
+				for(const endpointName in ENDPOINTS) {
+					try {
+						const { channelID, size, channelDescription, url } = ENDPOINTS[endpointName];
+						
+						if(channelID === null) {
+							log("INFO", `Endpoint "${endpointName}" not configured, ignoring endpoint.`);
+							continue;
+						}
 
-					for (const itemImg of items) text += `[img]${itemImg}[/img]`;
+						log("INFO", `Updating endpoint: "${endpointName}"`);
+						
+						const channel = backend.getChannelByID(channelID);
 
-					/* Update channel description */
+						if(!channel) {
+							log("ERROR", `Channel with ID ${channelID} not found, skipping endpoint.`);
+							continue;
+						}
 
-					const channel = backend.getChannelByID(channelID);
+						if(channelDescription.length > CHANNEL_DESC_CONFIG_LIMIT)
+						{
+							log("ERROR", `Configured channel description exceeds the limit (${CHANNEL_DESC_CONFIG_LIMIT}), skipping endpoint.`);
+							continue;
+						}
 
-					if (channel) {
-						channel.setDescription(channelDescription.replace(placeholder, text));
-					} else {
-						log(`Channel with ID: ${channelID} not found.`);
+						log("INFO", "Requesting data.");
+						let images = await fetchItems(url);
+						
+						if(images === false) {
+							log("ERROR", "Data request failed, skipping endpoint.");
+							continue;
+						}
+
+						log("INFO", "Adding BB code + image size parameter.");
+						images = images.map(imageURL => `[img]${imageURL}?width=${size}[/img]`);
+						
+
+						log("INFO", "Splitting up images into multiple channels (if needed)");
+
+						const descriptions = [];
+
+						let currentLength = channelDescription.length;
+						let lastCutPosition = 0;
+
+						for(let i = 0; i < images.length; i++) {
+							const image = images[i];
+
+							currentLength += image.length;
+
+							if(currentLength > CHANNEL_DESC_SAFE_LIMIT)
+							{
+								// reset
+								currentLength = channelDescription.length;
+
+								// add new description
+								descriptions.push(
+									channelDescription.replace(
+										`%${endpointName}%`, images.slice(lastCutPosition, i+1).join("")
+									)
+								);
+
+								// set new cut-off position
+								lastCutPosition = i+1;
+							}
+						}
+
+						// leftovers
+						if(lastCutPosition < images.length) {
+							descriptions.push(
+								channelDescription.replace(
+									`%${endpointName}%`, images.slice(lastCutPosition).join("")
+								)
+							);
+						}
+						
+						if(descriptions.length <= 0 || descriptions.length > 30 /* there should never be this amount of channels */) {
+							log("ERROR", "Something went horribly wrong when splitting up images into multiple channels, skipping endpoint.");
+							continue;
+						}
+
+						log("INFO", `Total channels needed: ${descriptions.length}`);
+						
+						log("INFO", "Setting description of first (parent/main) channel.");
+						channel.setDescription(descriptions.splice(0, 1)[0]);
+						
+						if(descriptions.length > 0) {
+							log("INFO", "Deleting previous subchannels.");
+							backend.getChannels()
+								.filter(ch => ch.parent() && ch.parent().id() === channel.id())
+								.forEach(ch => ch.delete());						
+							
+							log("INFO", "Creating subchannels with description.");
+							
+							const params = {
+								parent: channel.id(),
+								permanent: true,
+							};
+
+							for(let i = 0; i < descriptions.length; i++) {
+								//@ts-ignore
+								backend.createChannel({...params, 
+									description: descriptions[i],
+									name: `Page ${i+1}`,
+								});
+							}	
+						}
+						log("INFO", `Endpoint ${endpointName} finished.`);
+					} catch(err) {
+						console.log(err);
+						log("ERROR", "Unexpected error ocurred, skipping endpoint.");
 					}
+				}
+			}
+
+			async function fetchItems(url) {
+				try {
+					const { statusCode, status, data: body } = await httpRequest({
+						method: "GET",
+						url,
+						timeout: 5000,
+						headers: { Authorization: APIKey } 
+					});
+	
+					if(statusCode !== 200) {
+						throw new Error(`HTTP error - ${statusCode}: ${status}`);
+					}
+	
+					const data = JSON.parse(body.toString());
+
+					const {result, images} = JSON_SCHEMA.parse(data);
+	
+					if(result !== true) {
+						throw new Error("API says result is falsy.");
+					}
+	
+					return images;
 				} catch (err) {
 					console.log(err);
+					log("ERROR", `Something went wrong while fetching URL: ${url}`);
 					return false;
 				}
-				return true;
-			};
-
-			if (
-				SHOP.channelID &&
-				updateChannel(SHOP.channelID, SHOP.channelDescription, SHOP.size, shop, "%shop%", "shop")
-			) {
-				log("Shop items in channel updated successfully!");
-			} else {
-				if (SHOP.channelID) log("Something went wrong when updating channel with shop items!");
 			}
 
-			if (
-				UPCOMING.channelID &&
-				updateChannel(
-					UPCOMING.channelID,
-					UPCOMING.channelDescription,
-					UPCOMING.size,
-					upcoming,
-					"%upcoming%",
-					"upcoming"
-				)
-			) {
-				log("Upcoming items in channel updated successfully!");
-			} else {
-				if (UPCOMING.channelID)
-					log("Something went wrong when updating channel with Upcoming items!");
-			}
-		}
-
-		async function fetchItems(type, url) {
-			log("Fetching " + type + " items..");
-
-			let response = null;
-
-			try {
-				response = await httpRequest({ url, headers: { Authorization: key } });
-
-				if (!response)
-					throw new Error(
-						"Something went wrong with the Fortnite items (" + type + ") HTTP request."
-					);
-
-				if (response.statusCode !== 200)
-					throw new Error(`HTTP Error (${response.statusCode}): ${response.status}`);
-
-				response.data = JSON.parse(response.data.toString());
-
-				const { result } = response.data;
-
-				if (result !== true)
-					throw new Error("API responded with false result, something went wrong.");
-
-				log("Fetch request of Fortnite items (" + type + ") response is 200 (OK), successful.");
-			} catch (err) {
-				console.log(err);
-				return false;
-			}
-
-			return response.data;
-		}
-
-		function httpRequest({ method = "GET", url = "", timeout = 5000, body = "", headers = {} }) {
-			return new Promise((resolve, reject) => {
-				http.simpleRequest({ method, url, timeout, body, headers }, (error, response) => {
-					if (error) reject(error);
-					else resolve(response);
+			function httpRequest(config) {
+				return new Promise((resolve, reject) => {
+					try {
+						http.simpleRequest(config, (err, res) => {
+							if (err) {
+								return reject(new Error(err));
+							}
+	
+							return resolve(res);
+						});
+					} catch (err) {
+						return reject(err);
+					}
 				});
-			});
-		}
+			}
 
-		engine.log(`\n[LOADED] Script: "${name}" Version: "${version}" Author: "${author}"`);
+			log("INFO", "Setting up automatic update..");
+			// Run at midnight + 1 minute delay (at this time, shop should change)
+			new Cron("1 0 * * *", { timezone: "UTC" }, updateChannels);
+			// Run every 6th hours
+			new Cron("0 */6 * * *", { timezone: "UTC" }, updateChannels);
+			// Run as soon as backend is connected, check every 10th second
+			new Cron("*/10 * * * * *", function() {
+				if(backend.isConnected()) {
+					updateChannels();
+					this.stop();	
+				}
+			});
+			
+			engine.log(`Loaded: ${name} | v${version} | ${author}`);
+		});
 	}
 );
