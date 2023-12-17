@@ -37,7 +37,7 @@ registerPlugin({
         type: "number",
         title: "Default channel for the bot:",
         default: 0,
-        placeholder: "69"
+        placeholder: "123"
     }, {
         name: "ignoreChannelIDs",
         type: "strings",
