@@ -36,7 +36,7 @@ registerPlugin(
 				name: "vipGroupID",
 				type: "number",
 				title: "VIP Group ID:",
-				placeholder: "69",
+				placeholder: "123",
 			},
 			{
 				name: "limitVIP",
@@ -50,7 +50,7 @@ registerPlugin(
 				name: "extraVipGroupID",
 				type: "number",
 				title: "Extra-VIP Group ID:",
-				placeholder: "69",
+				placeholder: "123",
 			},
 			{
 				name: "limitExtraVIP",
