@@ -19,7 +19,7 @@ registerPlugin({
         name: "joinChannelID",
         type: "number",
         title: "Join Channel ID:",
-        placeholder: "69"
+        placeholder: "123"
     }, {
         name: "allowedGroupIDs",
         type: "strings",
@@ -36,18 +36,18 @@ registerPlugin({
         name: "channelGroupID",
         type: "number",
         title: "Channel Group ID:",
-        placeholder: "69",
+        placeholder: "123",
         indent: 3
     }, {
         name: "defaultParentChannelID",
         type: "number",
         title: "Default Parent Channel ID:",
-        placeholder: "69"
+        placeholder: "123"
     }, {
         name: "vipParentChannelID",
         type: "number",
         title: "VIP Parent Channel ID:",
-        placeholder: "69"
+        placeholder: "123"
     }, {
         name: "vipGroupIDs",
         type: "strings",
@@ -58,7 +58,7 @@ registerPlugin({
         name: "extraVipParentChannelID",
         type: "number",
         title: "Extra-VIP Parent Channel ID:",
-        placeholder: "69"
+        placeholder: "123"
     }, {
         name: "extraVipGroupIDs",
         type: "strings",
