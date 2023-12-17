@@ -41,7 +41,7 @@ registerPlugin(
 						name: "id",
 						type: "number",
 						title: "Channel ID (where to show the record):",
-						placeholder: "69",
+						placeholder: "123",
 					},
 					{
 						name: "name",
