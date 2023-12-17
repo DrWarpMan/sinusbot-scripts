@@ -26,7 +26,7 @@ registerPlugin({
         type: "string",
         title: "Anti-Poke Group ID:",
         default: 0,
-        placeholder: "69"
+        placeholder: "123"
     }, {
         name: "allowedGroupIDs",
         type: "strings",
