@@ -381,9 +381,9 @@ registerPlugin(
 			 */
 
 			function hasPermission(client) {
-				const clientGroups = client.getServerGroups().map(g => g.id());
-
 				if (!allowedGroups || allowedGroups.length === 0) return true;
+
+				const clientGroups = client.getServerGroups().map(g => g.id());
 
 				return groups_isBlacklist
 					? clientGroups.every(gID => !allowedGroups.includes(gID)) // blacklist
