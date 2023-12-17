@@ -4,3 +4,10 @@ node_modules
 scripts/command.js
 scripts/sinusbot-commands.js
 scripts/ServerQuery.js
+scripts/advertising.js
+scripts/alonemode.js
+scripts/bookmark.js
+scripts/followme.js
+scripts/norecording.js
+scripts/rememberChannel.js
+scripts/welcome.js
