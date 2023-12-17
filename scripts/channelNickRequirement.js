@@ -29,7 +29,7 @@ registerPlugin({
             name: "channelID",
             type: "string",
             title: "Channel ID:",
-            placeholder: "69"
+            placeholder: "123"
         }, {
             name: "nickRegex",
             type: "string",
