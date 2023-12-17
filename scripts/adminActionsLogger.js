@@ -142,28 +142,13 @@ registerPlugin(
 					.help("Gives a link to a generated .pdf file with admin actions data")
 					.checkPermission(client => hasAPIAccess(client))
 					.addArgument(args =>
-						args.number
-							.setName("day")
-							.min(1)
-							.max(31)
-							.integer()
-							.optional(undefined, false)
+						args.number.setName("day").min(1).max(31).integer().optional(undefined, false)
 					)
 					.addArgument(args =>
-						args.number
-							.setName("month")
-							.min(1)
-							.max(12)
-							.integer()
-							.optional(undefined, false)
+						args.number.setName("month").min(1).max(12).integer().optional(undefined, false)
 					)
 					.addArgument(args =>
-						args.number
-							.setName("year")
-							.min(2000)
-							.max(3000)
-							.integer()
-							.optional(undefined, false)
+						args.number.setName("year").min(2000).max(3000).integer().optional(undefined, false)
 					)
 					.exec(async (_, { day, month, year }, reply) => {
 						if (!day) day = _getDate();
@@ -319,13 +304,9 @@ registerPlugin(
 				event.on("clientAway", client => clientStateChanged(client, "away", 1));
 				event.on("clientBack", client => clientStateChanged(client, "away", 0));
 				event.on("clientMute", client => clientStateChanged(client, "mute", 1));
-				event.on("clientUnmute", client =>
-					clientStateChanged(client, "mute", 0)
-				);
+				event.on("clientUnmute", client => clientStateChanged(client, "mute", 0));
 				event.on("clientDeaf", client => clientStateChanged(client, "deaf", 1));
-				event.on("clientUndeaf", client =>
-					clientStateChanged(client, "deaf", 0)
-				);
+				event.on("clientUndeaf", client => clientStateChanged(client, "deaf", 0));
 
 				function clientStateChanged(client, state, enabled) {
 					if (client.isSelf()) return;
@@ -570,8 +551,7 @@ registerPlugin(
 					data[uid] = data[uid] || {};
 					data[uid].channelTimes = data[uid].channelTimes || {};
 
-					data[uid].channelTimes[channelID] =
-						data[uid].channelTimes[channelID] || {};
+					data[uid].channelTimes[channelID] = data[uid].channelTimes[channelID] || {};
 					data[uid].channelTimes[channelID].channelName = channelName;
 					data[uid].channelTimes[channelID].timestamp =
 						data[uid].channelTimes[channelID].timestamp || 0;
@@ -606,8 +586,7 @@ registerPlugin(
 					data[uid].clientStates = data[uid].clientStates || {};
 					data[uid].clientStates[state] = data[uid].clientStates[state] || 0;
 
-					data[uid].clientStates[state] +=
-						Date.now() - STATE_TRACK_START[uid][state];
+					data[uid].clientStates[state] += Date.now() - STATE_TRACK_START[uid][state];
 
 					delete STATE_TRACK_START[uid][state];
 
@@ -617,8 +596,6 @@ registerPlugin(
 			}
 		});
 
-		engine.log(
-			`\n[LOADED] Script: "${name}" Version: "${version}" Author: "${author}"`
-		);
+		engine.log(`\n[LOADED] Script: "${name}" Version: "${version}" Author: "${author}"`);
 	}
 );
