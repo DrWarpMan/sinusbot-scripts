@@ -1,8 +1,9 @@
 registerPlugin(
 	{
 		name: "Nick Database",
-		version: "1.0.2",
-		description: "Save last seen nicknames of clients, to be available even if offline.",
+		version: "1.0.1",
+		description:
+			"Script that will save nicknames for each client, to load them later whilst client's are offline!",
 		author: "DrWarpMan <drwarpman@gmail.com>",
 		backends: ["ts3"],
 		engine: ">= 1.0",
@@ -13,11 +14,10 @@ registerPlugin(
 		voiceCommands: [],
 		vars: [
 			{
-				name: "logLevel",
-				type: "select",
-				title: "Log Level:",
-				options: ["ERROR", "WARN", "INFO"],
-				default: "0",
+				name: "logEnabled",
+				type: "checkbox",
+				title: "Check to enable detailed logs",
+				default: false,
 			},
 		],
 	},
@@ -26,39 +26,27 @@ registerPlugin(
 		const store = require("store");
 		const event = require("event");
 
-		event.on("load", () => {
-			// Libraries
+		const log = msg => !!config.logEnabled && engine.log(msg);
 
-			const createLogger = require("log");
-			if(!createLogger) throw new Error("Log library not found!");
-			const log = createLogger({
-				engine,
-				logLevel: config.logLevel,
-			});
+		event.on("clientNick", (client, _) => saveNick(client));
+		event.on("clientVisible", ({ client }) => saveNick(client));
 
-			event.on("clientNick", (client) => saveNick(client));
-			event.on("clientVisible", ({ client }) => saveNick(client));
+		function getNick(uid) {
+			log(`Grabbing nick of: ${uid}`);
+			return store.get(uid) || false;
+		}
 
-			/** @param {string} uid */
-			const getNick = (uid) => {
-				return store.get(uid) || "";
-			}
-	
-			/** @param {Client} client */
-			const saveNick = (client) => {
-				const nick = client.nick();
-				const uid = client.uid();
-				
-				store.set(uid, nick);
+		function saveNick(client) {
+			log(`Saving nick of: ${client.uid()} (${client.nick()})`);
+			return store.set(client.uid(), client.nick());
+		}
 
-				log("INFO", `Saved nick ${nick} for ${uid}`);
-			}
+		module.exports = {
+			getNick,
+		};
 
-			module.exports = {
-				getNick,
-			};
-
-			engine.log(`Loaded: ${name} | v${version} | ${author}`);
-		});
-	},
+		engine.log(
+			`\n[LOADED] Script: "${name}" Version: "${version}" Author: "${author}"`
+		);
+	}
 );
