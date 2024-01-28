@@ -1,7 +1,7 @@
 registerPlugin(
     {
         name: "Croner",
-        version: "1.0.0 (Croner: 5.5.1)",
+        version: "1.0.1 (Croner: 8.0.0)",
         description: "Croner library made to be used with(in) Sinusbot",
         author: "DrWarpMan <drwarpman@gmail.com>",
         backends: ["ts3", "discord"],
@@ -18,7 +18,7 @@ registerPlugin(
 
 	minitz - MIT License - Hexagon <hexagon@56k.guru>
 
-	Version 4.0.4
+	Version 4.0.6
 	
 	------------------------------------------------------------------------------------
 
@@ -198,7 +198,11 @@ minitz.fromTZ = function(tp, throwOnInvalid) {
  *
  */
 minitz.toTZ = function (d, tzStr) {
-	const td = new Date(d.toLocaleString("sv-SE", {timeZone: tzStr}));
+
+	// - replace narrow no break space with regular space to compensate for bug in Node.js 19.1
+	const localDateString = d.toLocaleString("en-US", {timeZone: tzStr}).replace(/[\u202f]/," ");
+
+	const td = new Date(localDateString);
 	return {
 		y: td.getFullYear(),
 		m: td.getMonth() + 1,
@@ -242,7 +246,7 @@ minitz.tp = (y,m,d,h,i,s,tz) => { return { y, m, d, h, i, s, tz: tz }; };
 function getTimezoneOffset(timeZone, date = new Date()) {
 
 	// Get timezone 
-	const tz = date.toLocaleString("en", {timeZone, timeStyle: "long"}).split(" ").slice(-1)[0];
+	const tz = date.toLocaleString("en-US", {timeZone: timeZone, timeZoneName: "shortOffset"}).split(" ").slice(-1)[0];
 
 	// Extract time in en-US format
 	// - replace narrow no break space with regular space to compensate for bug in Node.js 19.1
@@ -292,6 +296,12 @@ minitz.minitz = minitz;
 /**
  * @callback CatchCallbackFn
  * @param {unknown} e
+ * @param {Cron} job
+ */
+
+/**
+ * @callback ProtectCallbackFn
+ * @param {Cron} job
  */
 
 /**
@@ -301,12 +311,15 @@ minitz.minitz = minitz;
  * @property {boolean} [kill] - Job is about to be killed or killed
  * @property {boolean | CatchCallbackFn} [catch] - Continue exection even if a unhandled error is thrown by triggered function
  * 										  - If set to a function, execute function on catching the error.
+ * @property {boolean} [unref] - Abort job instantly if nothing else keeps the event loop running.
  * @property {number} [maxRuns] - Maximum nuber of executions
  * @property {number} [interval] - Minimum interval between executions, in seconds
+ * @property {boolean | ProtectCallbackFn} [protect] - Skip current run if job is already running
  * @property {string | Date} [startAt] - When to start running
  * @property {string | Date} [stopAt] - When to stop running
  * @property {string} [timezone] - Time zone in Europe/Stockholm format
- * @property {boolean} [legacyMode] - Combine day-of-month and day-of-week using true = OR, false = AND. Default is OR.
+ * @property {number} [utcOffset] - Offset from UTC in minutes
+ * @property {boolean} [legacyMode] - Combine day-of-month and day-of-week using true = OR, false = AND. Default is true = OR.
  * @property {?} [context] - Used to pass any object to scheduled function
  */
 
@@ -333,7 +346,8 @@ function CronOptions(options) {
 	options.maxRuns = (options.maxRuns === void 0) ? Infinity : options.maxRuns;
 	options.catch = (options.catch === void 0) ? false : options.catch;
 	options.interval = (options.interval === void 0) ? 0 : parseInt(options.interval, 10);
-	options.kill = false;
+	options.utcOffset = (options.utcOffset === void 0) ? void 0 : parseInt(options.utcOffset, 10);
+	options.unref = (options.unref === void 0) ? false : options.unref;
 	
 	// startAt is set, validate it
 	if( options.startAt ) {
@@ -352,12 +366,504 @@ function CronOptions(options) {
 		}
 	}
 
+	// Validate utcOffset
+	if (options.utcOffset !== void 0) {
+		
+		// Limit range for utcOffset
+		if (isNaN(options.utcOffset)) {
+			throw new Error("CronOptions: Invalid value passed for utcOffset, should be number representing minutes offset from UTC.");
+		} else if (options.utcOffset < -870 || options.utcOffset > 870 ) {
+			throw new Error("CronOptions: utcOffset out of bounds.");
+		}
+		
+		// Do not allow both timezone and utcOffset
+		if (options.utcOffset !== void 0 && options.timezone) {
+			throw new Error("CronOptions: Combining 'utcOffset' with 'timezone' is not allowed.");
+		}
+
+	}
+
+	// Unref should be true, false or undefined
+	if (options.unref !== true && options.unref !== false) {
+		throw new Error("CronOptions: Unref should be either true, false or undefined(false).");
+	}
+	
 	return options;
 
 }
 
+/**
+ * Name for each part of the cron pattern
+ * @typedef {("second" | "minute" | "hour" | "day" | "month" | "dayOfWeek")} CronPatternPart
+ */
+
+/**
+ * Offset, 0 or -1. 
+ * 
+ * 0 offset is used for seconds,minutes and hours as they start on 1. 
+ * -1 on days and months, as they start on 0
+ * 
+ * @typedef {Number} CronIndexOffset
+ */
+
+/**
+ * Constants to represent different occurrences of a weekday in its month.
+ * - `LAST_OCCURRENCE`: The last occurrence of a weekday.
+ * - `ANY_OCCURRENCE`: Combines all individual weekday occurrence bitmasks, including the last.
+ * - `OCCURRENCE_BITMASKS`: An array of bitmasks, with each index representing the respective occurrence of a weekday (0-indexed). 
+ */
+const LAST_OCCURRENCE = 0b100000;
+const ANY_OCCURRENCE = 0b00001 | 0b00010 | 0b00100 | 0b01000 | 0b10000 | LAST_OCCURRENCE;
+const OCCURRENCE_BITMASKS = [0b00001, 0b00010, 0b00100, 0b010000, 0b10000];
+
+/**
+ * Create a CronPattern instance from pattern string ('* * * * * *')
+ * @constructor
+ * @param {string} pattern - Input pattern
+ * @param {string} timezone - Input timezone, used for '?'-substitution
+ */
+function CronPattern (pattern, timezone) {
+
+	this.pattern 		= pattern;
+	this.timezone		= timezone;
+
+	this.second			= Array(60).fill(0); // 0-59
+	this.minute			= Array(60).fill(0); // 0-59
+	this.hour			= Array(24).fill(0); // 0-23
+	this.day			= Array(31).fill(0); // 0-30 in array, 1-31 in config
+	this.month			= Array(12).fill(0); // 0-11 in array, 1-12 in config
+	this.dayOfWeek		= Array(7).fill(0);  // 0-7 Where 0 = Sunday and 7=Sunday; Value is a bitmask
+
+	this.lastDayOfMonth = false;
+
+	this.starDOM = false;  // Asterisk used for dayOfMonth
+	this.starDOW  = false; // Asterisk used for dayOfWeek
+
+	this.parse();
+
+}
+
+/**
+ * Parse current pattern, will throw on any type of failure
+ * @private
+ */
+CronPattern.prototype.parse = function () {
+
+	// Sanity check
+	if( !(typeof this.pattern === "string" || this.pattern.constructor === String) ) {
+		throw new TypeError("CronPattern: Pattern has to be of type string.");
+	}
+
+	// Handle @yearly, @monthly etc
+	if (this.pattern.indexOf("@") >= 0) this.pattern = this.handleNicknames(this.pattern).trim();
+
+	// Split configuration on whitespace
+	const parts = this.pattern.replace(/\s+/g, " ").split(" ");
+
+	// Validite number of configuration entries
+	if( parts.length < 5 || parts.length > 6 ) {
+		throw new TypeError("CronPattern: invalid configuration format ('" + this.pattern + "'), exacly five or six space separated parts required.");
+	}
+
+	// If seconds is omitted, insert 0 for seconds
+	if( parts.length === 5) {
+		parts.unshift("0");
+	}
+
+	// Convert 'L' to lastDayOfMonth flag in day-of-month field
+	if(parts[3].indexOf("L") >= 0) {
+		parts[3] = parts[3].replace("L","");
+		this.lastDayOfMonth = true;
+	}
+	
+	// Check for starDOM
+	if(parts[3] == "*") {
+		this.starDOM = true;
+	}
+
+	// Replace alpha representations
+	if (parts[4].length >= 3) parts[4] = this.replaceAlphaMonths(parts[4]);
+	if (parts[5].length >= 3) parts[5] = this.replaceAlphaDays(parts[5]);
+
+	// Check for starDOW
+	if(parts[5] == "*") {
+		this.starDOW = true;
+	}
+	
+	// Implement '?' in the simplest possible way - replace ? with current value, before further processing
+	if (this.pattern.indexOf("?") >= 0) {
+		const initDate = new CronDate(new Date(),this.timezone).getDate(true);
+		parts[0] = parts[0].replace("?", initDate.getSeconds());
+		parts[1] = parts[1].replace("?", initDate.getMinutes());
+		parts[2] = parts[2].replace("?", initDate.getHours());
+		if (!this.starDOM) parts[3] = parts[3].replace("?", initDate.getDate());
+		parts[4] = parts[4].replace("?", initDate.getMonth()+1); // getMonth is zero indexed while pattern starts from 1
+		if (!this.starDOW) parts[5] = parts[5].replace("?", initDate.getDay());
+	}
+
+	// Check part content
+	this.throwAtIllegalCharacters(parts);
+
+	// Parse parts into arrays, validates as we go
+	this.partToArray("second",    parts[0], 0, 1);
+	this.partToArray("minute",    parts[1], 0, 1);
+	this.partToArray("hour",      parts[2], 0, 1);
+	this.partToArray("day",       parts[3], -1, 1);
+	this.partToArray("month",     parts[4], -1, 1);
+	this.partToArray("dayOfWeek", parts[5], 0, ANY_OCCURRENCE);
+
+	// 0 = Sunday, 7 = Sunday
+	if(this.dayOfWeek[7]) {
+		this.dayOfWeek[0] = this.dayOfWeek[7];
+	}
+
+};
+
+/**
+ * Convert current part (seconds/minutes etc) to an array of 1 or 0 depending on if the part is about to trigger a run or not.
+ * @private
+ * 
+ * @param {CronPatternPart} type - Seconds/minutes etc
+ * @param {string} conf - Current pattern part - *, 0-1 etc
+ * @param {CronIndexOffset} valueIndexOffset
+ * @param {number} defaultValue
+ * @param {boolean} [recursed] - Is this a recursed call 
+ */
+CronPattern.prototype.partToArray = function (type, conf, valueIndexOffset, defaultValue) {
+
+	const arr = this[type];
+
+	// Error on empty part
+	const lastDayOfMonth = (type === "day" && this.lastDayOfMonth);
+	if( conf === "" && !lastDayOfMonth ) throw new TypeError("CronPattern: configuration entry " + type + " (" + conf + ") is empty, check for trailing spaces.");
+	
+	// First off, handle wildcard
+	if( conf === "*" ) return arr.fill(defaultValue);
+
+	// Handle separated entries (,) by recursion
+	const split = conf.split(",");
+	if( split.length > 1 ) {
+		for( let i = 0; i < split.length; i++ ) {
+			this.partToArray(type, split[i], valueIndexOffset, defaultValue);
+		}
+
+	// Handle range with stepping (x-y/z)
+	} else if( conf.indexOf("-") !== -1 && conf.indexOf("/") !== -1 ) {
+		this.handleRangeWithStepping(conf, type, valueIndexOffset, defaultValue);
+	
+	// Handle range
+	} else if( conf.indexOf("-") !== -1 ) {
+		this.handleRange(conf, type, valueIndexOffset, defaultValue);
+
+	// Handle stepping
+	} else if( conf.indexOf("/") !== -1 ) {
+		this.handleStepping(conf, type, valueIndexOffset, defaultValue);
+
+	// Anything left should be a number
+	} else if( conf !== "" ) {
+		this.handleNumber(conf, type, valueIndexOffset, defaultValue);
+	}
+
+};
+
+/**
+ * After converting JAN-DEC, SUN-SAT only 0-9 * , / - are allowed, throw if anything else pops up
+ * @private
+ * 
+ * @param {string[]} parts - Each part split as strings
+ */
+CronPattern.prototype.throwAtIllegalCharacters = function(parts) {
+	for (let i = 0; i < parts.length; i++) {
+		const reValidCron = i === 5 ? /[^/*0-9,\-#L]+/ : /[^/*0-9,-]+/;
+		if (reValidCron.test(parts[i])) {
+			throw new TypeError("CronPattern: configuration entry " + i + " (" + parts[i] + ") contains illegal characters.");
+		}
+	}
+};
+
+/**
+ * Nothing but a number left, handle that
+ * @private
+ * 
+ * @param {string} conf - Current part, expected to be a number, as a string
+ * @param {string} type - One of "seconds", "minutes" etc
+ * @param {number} valueIndexOffset - -1 for day of month, and month, as they start at 1. 0 for seconds, hours, minutes
+ */
+CronPattern.prototype.handleNumber = function (conf, type, valueIndexOffset, defaultValue) {
+	
+	const result = this.extractNth(conf, type);
+	
+	const i = (parseInt(result[0], 10) + valueIndexOffset);
+
+	if( isNaN(i) ) {
+		throw new TypeError("CronPattern: " + type + " is not a number: '" + conf + "'");
+	}
+
+	this.setPart(type, i, result[1] || defaultValue);
+};
+
+/**
+ * Set a specific value for a specific part of the CronPattern.
+ * 
+ * @param {CronPatternPart} part - The specific part of the CronPattern, e.g., "second", "minute", etc.
+ * @param {number} index - The index to modify.
+ * @param {number} value - The value to set, typically 0 or 1, in case of "nth weekday" it will be the weekday number used for further processing
+ */
+CronPattern.prototype.setPart = function(part, index, value) {
+
+	// Ensure the part exists in our CronPattern.
+	if (!Object.prototype.hasOwnProperty.call(this,part)) {
+		throw new TypeError("CronPattern: Invalid part specified: " + part);
+	}
+
+	//  Special handling for dayOfWeek
+	if (part === "dayOfWeek") {
+		// SUN can both be 7 and 0, normalize to 0 here
+		if (index === 7) index = 0;
+		if ((index < 0 || index > 6) && index !== "L") {
+			throw new RangeError("CronPattern: Invalid value for dayOfWeek: " + index);
+		}
+		this.setNthWeekdayOfMonth(index, value);
+		return;
+	}
+
+	// Validate the value for the specified part.
+	if (part === "second" || part === "minute") {
+		if (index < 0 || index >= 60) {
+			throw new RangeError("CronPattern: Invalid value for " + part + ": " + index);
+		}
+	} else if (part === "hour") {
+		if (index < 0 || index >= 24) {
+			throw new RangeError("CronPattern: Invalid value for " + part + ": " + index);
+		}
+	} else if (part === "day") {
+		if (index < 0 || index >= 31) {
+			throw new RangeError("CronPattern: Invalid value for " + part + ": " + index);
+		}
+	} else if (part === "month") {
+		if (index < 0 || index >= 12) {
+			throw new RangeError("CronPattern: Invalid value for " + part + ": " + index);
+		}
+	}
+
+	// Set the value for the specific part and index.
+	this[part][index] = value;
+};
+
+/**
+ * Take care of ranges with stepping (e.g. 3-23/5)
+ * @private
+ *
+ * @param {string} conf - Current part, expected to be a string like 3-23/5
+ * @param {string} type - One of "seconds", "minutes" etc
+ * @param {number} valueIndexOffset - -1 for day of month, and month, as they start at 1. 0 for seconds, hours, minutes
+ */
+CronPattern.prototype.handleRangeWithStepping = function (conf, type, valueIndexOffset, defaultValue) {
+
+	const result = this.extractNth(conf, type);
+	
+	const matches = result[0].match(/^(\d+)-(\d+)\/(\d+)$/);
+
+	if( matches === null ) throw new TypeError("CronPattern: Syntax error, illegal range with stepping: '" + conf + "'");
+
+	let [, lower, upper, steps] = matches;
+	lower = parseInt(lower, 10) + valueIndexOffset;
+	upper = parseInt(upper, 10) + valueIndexOffset;
+	steps = parseInt(steps, 10);
+
+	if( isNaN(lower) ) throw new TypeError("CronPattern: Syntax error, illegal lower range (NaN)");
+	if( isNaN(upper) ) throw new TypeError("CronPattern: Syntax error, illegal upper range (NaN)");
+	if( isNaN(steps) ) throw new TypeError("CronPattern: Syntax error, illegal stepping: (NaN)");
+
+	if( steps === 0 ) throw new TypeError("CronPattern: Syntax error, illegal stepping: 0");
+	if( steps > this[type].length ) throw new TypeError("CronPattern: Syntax error, steps cannot be greater than maximum value of part ("+this[type].length+")");
+
+	if( lower > upper ) throw new TypeError("CronPattern: From value is larger than to value: '" + conf + "'");
+
+	for (let i = lower; i <= upper; i += steps) {
+		this.setPart(type, i, result[1] || defaultValue);
+	}
+};
+
+CronPattern.prototype.extractNth = function (conf, type) {
+	// Break out nth weekday (#) if exists
+	// - only allow if type os dayOfWeek
+	let rest = conf;
+	let nth;
+	if (rest.includes("#")) {
+		if (type !== "dayOfWeek") {
+			throw new Error("CronPattern: nth (#) only allowed in day-of-week field");
+		}
+		nth = rest.split("#")[1];
+		rest = rest.split("#")[0];
+	}
+	return [rest, nth];
+};
+
+/**
+ * Take care of ranges (e.g. 1-20)
+ * @private
+ * 
+ * @param {string} conf - Current part, expected to be a string like 1-20, can contain L for last
+ * @param {string} type - One of "seconds", "minutes" etc
+ * @param {number} valueIndexOffset - -1 for day of month, and month, as they start at 1. 0 for seconds, hours, minutes
+ */
+CronPattern.prototype.handleRange = function (conf, type, valueIndexOffset, defaultValue) {
+
+	const result = this.extractNth(conf, type);
+
+	const split = result[0].split("-");
+
+	if( split.length !== 2 ) {
+		throw new TypeError("CronPattern: Syntax error, illegal range: '" + conf + "'");
+	}
+
+	const lower = parseInt(split[0], 10) + valueIndexOffset,
+		upper = parseInt(split[1], 10) + valueIndexOffset;
+
+	if( isNaN(lower) ) {
+		throw new TypeError("CronPattern: Syntax error, illegal lower range (NaN)");
+	} else if( isNaN(upper) ) {
+		throw new TypeError("CronPattern: Syntax error, illegal upper range (NaN)");
+	}
+
+	//
+	if( lower > upper ) {
+		throw new TypeError("CronPattern: From value is larger than to value: '" + conf + "'");
+	}
+
+	for( let i = lower; i <= upper; i++ ) {
+		this.setPart(type, i, result[1] || defaultValue);
+	}
+};
+
+/**
+ * Handle stepping (e.g. * / 14)
+ * @private
+ * 
+ * @param {string} conf - Current part, expected to be a string like * /20 (without the space)
+ * @param {string} type - One of "seconds", "minutes" etc
+ */
+CronPattern.prototype.handleStepping = function (conf, type, valueIndexOffset, defaultValue) {
+
+	const result = this.extractNth(conf, type);
+
+	const split = result[0].split("/");
+
+	if( split.length !== 2 ) {
+		throw new TypeError("CronPattern: Syntax error, illegal stepping: '" + conf + "'");
+	}
+
+	let start = 0;
+	if( split[0] !== "*" ) {
+		start = parseInt(split[0], 10) + valueIndexOffset;
+	}
+
+	const steps = parseInt(split[1], 10);
+
+	if( isNaN(steps) ) throw new TypeError("CronPattern: Syntax error, illegal stepping: (NaN)");
+	if( steps === 0 ) throw new TypeError("CronPattern: Syntax error, illegal stepping: 0");
+	if( steps > this[type].length ) throw new TypeError("CronPattern: Syntax error, max steps for part is ("+this[type].length+")");
+
+	for( let i = start; i < this[type].length; i+= steps ) {
+		this.setPart(type, i, result[1] || defaultValue);
+	}
+};
+
+/**
+ * Replace day name with day numbers
+ * @private
+ * 
+ * @param {string} conf - Current part, expected to be a string that might contain sun,mon etc.
+ * 
+ * @returns {string} - conf with 0 instead of sun etc.
+ */
+CronPattern.prototype.replaceAlphaDays = function (conf) {
+	return conf
+		.replace(/-sun/gi, "-7") // choose 7 if sunday is the upper value of a range because the upper value must not be smaller than the lower value
+		.replace(/sun/gi, "0")
+		.replace(/mon/gi, "1")
+		.replace(/tue/gi, "2")
+		.replace(/wed/gi, "3")
+		.replace(/thu/gi, "4")
+		.replace(/fri/gi, "5")
+		.replace(/sat/gi, "6");
+};
+
+/**
+ * Replace month name with month numbers
+ * @private
+ * 
+ * @param {string} conf - Current part, expected to be a string that might contain jan,feb etc.
+ * 
+ * @returns {string} - conf with 0 instead of sun etc.
+ */
+CronPattern.prototype.replaceAlphaMonths = function (conf) {
+	return conf
+		.replace(/jan/gi, "1")
+		.replace(/feb/gi, "2")
+		.replace(/mar/gi, "3")
+		.replace(/apr/gi, "4")
+		.replace(/may/gi, "5")
+		.replace(/jun/gi, "6")
+		.replace(/jul/gi, "7")
+		.replace(/aug/gi, "8")
+		.replace(/sep/gi, "9")
+		.replace(/oct/gi, "10")
+		.replace(/nov/gi, "11")
+		.replace(/dec/gi, "12");
+};
+
+/**
+ * Replace nicknames with actual cron patterns
+ * @private
+ * 
+ * @param {string} pattern - Pattern, may contain nicknames, or not
+ * 
+ * @returns {string} - Pattern, with cron expression insted of nicknames
+ */
+CronPattern.prototype.handleNicknames = function (pattern) {
+	// Replace textual representations of pattern
+	const cleanPattern = pattern.trim().toLowerCase();
+	if (cleanPattern === "@yearly" || cleanPattern === "@annually") {
+		return "0 0 1 1 *";
+	} else if (cleanPattern === "@monthly") {
+		return "0 0 1 * *";
+	} else if (cleanPattern === "@weekly") {
+		return "0 0 * * 0";
+	} else if (cleanPattern === "@daily") {
+		return "0 0 * * *";
+	} else if (cleanPattern === "@hourly") {
+		return "0 * * * *";
+	} else {
+		return pattern;
+	}
+};
+
+/**
+ * Handle the nth weekday of the month logic using hash sign (e.g. FRI#2 for the second Friday of the month)
+ * @private
+ * 
+ * @param {number} index - Weekday, example: 5 for friday
+ * @param {number} nthWeekday - bitmask, 2 (0x00010) for 2nd friday, 31 (ANY_OCCURRENCE, 0b100000) for any day
+ */
+CronPattern.prototype.setNthWeekdayOfMonth = function(index, nthWeekday) {
+	if (nthWeekday === "L") {
+		this["dayOfWeek"][index] = this["dayOfWeek"][index] | LAST_OCCURRENCE;
+	} else if (nthWeekday < 6 && nthWeekday > 0) {
+		this["dayOfWeek"][index] = this["dayOfWeek"][index] | OCCURRENCE_BITMASKS[nthWeekday - 1];
+	} else if (nthWeekday === ANY_OCCURRENCE) {
+		this["dayOfWeek"][index] = ANY_OCCURRENCE;
+	} else {
+		throw new TypeError(`CronPattern: nth weekday of of range, should be 1-5 or L. Value: ${nthWeekday}`);
+	}
+};
+
 /** 
  * Constant defining the minimum number of days per month where index 0 = January etc.
+ * 
+ * Used to look if a date _could be_ out of bounds. The "could be" part is why february is pinned to 28 days.
+ * 
  * @private
  * 
  * @constant
@@ -393,13 +899,13 @@ const RecursionSteps = [
  * @constructor
  * 
  * @param {CronDate|Date|string} [d] - Input date, if using string representation ISO 8001 (2015-11-24T19:40:00) local timezone is expected
- * @param {string} [tz] - String representation of target timezone in Europe/Stockholm format.
+ * @param {string|number} [tz] - String representation of target timezone in Europe/Stockholm format, or a number representing offset in minutes.
 */
 function CronDate (d, tz) {	
 
 	/**
 	 * TimeZone
-	 * @type {string|undefined}
+	 * @type {string|number|undefined}
 	 */
 	this.tz = tz;
 
@@ -423,6 +929,47 @@ function CronDate (d, tz) {
 }
 
 /**
+ * Check if the given date is the nth occurrence of a weekday in its month.
+ * @private
+ * 
+ * @param {number} year - The year.
+ * @param {number} month - The month (0 for January, 11 for December).
+ * @param {number} day - The day of the month.
+ * @param {number} nth - The nth occurrence (bitmask).
+ * @return {boolean} - True if the date is the nth occurrence of its weekday, false otherwise.
+ */
+CronDate.prototype.isNthWeekdayOfMonth = function(year, month, day, nth) {
+	const date = new Date(Date.UTC(year, month, day));
+	const weekday = date.getUTCDay();
+
+	// Count occurrences of the weekday up to and including the current date
+	let count = 0;
+	for (let d = 1; d <= day; d++) {
+		if (new Date(Date.UTC(year, month, d)).getUTCDay() === weekday) {
+			count++;
+		}
+	}
+
+	// Check for nth occurrence
+	if (nth & ANY_OCCURRENCE && OCCURRENCE_BITMASKS[count-1] & nth) {
+		return true;
+	}
+    
+	// Check for last occurrence
+	if (nth & LAST_OCCURRENCE) {
+		const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+		for (let d = day + 1; d <= daysInMonth; d++) {
+			if (new Date(Date.UTC(year, month, d)).getUTCDay() === weekday) {
+				return false;  // There's another occurrence of the same weekday later in the month
+			}
+		}
+		return true;  // The current date is the last occurrence of the weekday in the month
+	}
+
+	return false;
+};
+
+/**
  * Sets internals using a Date 
  * @private
  * 
@@ -436,15 +983,27 @@ CronDate.prototype.fromDate = function (inDate) {
 	 * 
 	 * If not, extract all parts from inDate as-is.
 	 */
-	if (this.tz) {
-		const d = minitz.toTZ(inDate, this.tz);
-		this.ms = inDate.getMilliseconds();
-		this.second = d.s;
-		this.minute = d.i;
-		this.hour = d.h;
-		this.day = d.d;
-		this.month  = d.m - 1;
-		this.year = d.y;
+	if (this.tz !== void 0) {
+		if (typeof this.tz === "number") {
+			this.ms = inDate.getUTCMilliseconds();
+			this.second = inDate.getUTCSeconds();
+			this.minute = inDate.getUTCMinutes()+this.tz;
+			this.hour = inDate.getUTCHours();
+			this.day = inDate.getUTCDate();
+			this.month  = inDate.getUTCMonth();
+			this.year = inDate.getUTCFullYear();
+			// Minute could be out of bounds, apply
+			this.apply();
+		} else {
+			const d = minitz.toTZ(inDate, this.tz);
+			this.ms = inDate.getMilliseconds();
+			this.second = d.s;
+			this.minute = d.i;
+			this.hour = d.h;
+			this.day = d.d;
+			this.month  = d.m - 1;
+			this.year = d.y;
+		}
 	} else {
 		this.ms = inDate.getMilliseconds();
 		this.second = inDate.getSeconds();
@@ -510,12 +1069,15 @@ CronDate.prototype.fromCronDate = function (d) {
 };
 
 /**
- * Reset internal parameters (seconds, minutes, hours) if any of them have exceeded (or could have exceeded) their ranges
+ * Reset internal parameters (seconds, minutes, hours) if any of them have exceeded (or could have exceeded) their normal ranges
+ * 
+ * Will alway return true on february 29th, as that is a date that _could_ be out of bounds
+ * 
  * @private
  */
 CronDate.prototype.apply = function () {
 	// If any value could be out of bounds, apply 
-	if (this.month>11||this.day>DaysOfMonth[this.month]||this.hour>59||this.minute>59||this.second>59) {
+	if (this.month>11||this.day>DaysOfMonth[this.month]||this.hour>59||this.minute>59||this.second>59||this.hour<0||this.minute<0||this.second<0) {
 		const d = new Date(Date.UTC(this.year, this.month, this.day, this.hour, this.minute, this.second, this.ms));
 		this.ms = d.getUTCMilliseconds();
 		this.second = d.getUTCSeconds();
@@ -561,6 +1123,7 @@ CronDate.prototype.findNext = function (options, target, pattern, offset) {
 	// Pre-calculate last day of month if needed
 	let lastDayOfMonth;
 	if (pattern.lastDayOfMonth) {
+		// This is an optimization for every month except february, which has different number of days different years
 		if (this.month !== 1) {
 			lastDayOfMonth = DaysOfMonth[this.month]; // About 20% performance increase when using L
 		} else {
@@ -584,7 +1147,18 @@ CronDate.prototype.findNext = function (options, target, pattern, offset) {
 
 		// Special case for day of week
 		if (target === "day" && !pattern.starDOW) {
-			const dowMatch = pattern.dow[(fDomWeekDay + ((i-offset) - 1)) % 7];
+
+			let dowMatch = pattern.dayOfWeek[(fDomWeekDay + ((i-offset) - 1)) % 7];
+
+			// Extra check for nth weekday of month
+			// 0b011111 === All occurences of weekday in month
+			// 0b100000 === Last occurence of weekday in month
+			if (dowMatch && (dowMatch & ANY_OCCURRENCE)) {
+				dowMatch = this.isNthWeekdayOfMonth(this.year, this.month, i - offset, dowMatch);
+			} else if (dowMatch) {
+				throw new Error(`CronDate: Invalid value for dayOfWeek encountered. ${dowMatch}`);
+			}
+
 			// If we use legacyMode, and dayOfMonth is specified - use "OR" to combine day of week with day of month
 			// In all other cases use "AND"
 			if (options.legacyMode && !pattern.starDOM) {
@@ -608,6 +1182,9 @@ CronDate.prototype.findNext = function (options, target, pattern, offset) {
 
 /**
  * Increment to next run time recursively
+ * 
+ * This function is currently capped at year 3000. Do you have a reason to go further? Open an issue on GitHub!
+
  * @private
  * 
  * @param {string} pattern - The pattern used to increment current state
@@ -673,13 +1250,14 @@ CronDate.prototype.recurse = function (pattern, options, doing)  {
  */
 CronDate.prototype.increment = function (pattern, options, hasPreviousRun) {
 	
-	// Always add one second, or minimum interval, then clear milliseconds and apply changes if seconds has gotten out of bounds
-	if (options.interval > 1 && hasPreviousRun) {
-		this.second += options.interval;
-	} else {
-		this.second += 1;
-	}
+	// Move to next second, or increment according to minimum interval indicated by option `interval: x`
+	// Do not increment a full interval if this is the very first run
+	this.second += (options.interval > 1 && hasPreviousRun) ? options.interval : 1;
+
+	// Always reset milliseconds, so we are at the next second exactly
 	this.ms = 0;
+
+	// Make sure seconds has not gotten out of bounds
 	this.apply();
 
 	// Recursively change each part (y, m, d ...) until next match is found, return null on failure
@@ -695,10 +1273,21 @@ CronDate.prototype.increment = function (pattern, options, hasPreviousRun) {
  * @returns {Date}
  */
 CronDate.prototype.getDate = function (internal) {
-	if (internal || !this.tz) {
+	// If this is an internal call, return the date as is
+	// Also use this option when no timezone or utcOffset is set
+	if (internal || this.tz === void 0) {
 		return new Date(this.year, this.month, this.day, this.hour, this.minute, this.second, this.ms);
 	} else {
-		return minitz(this.year, this.month+1, this.day, this.hour, this.minute, this.second, this.tz);
+		// If .tz is a number, it indicates offset in minutes. UTC timestamp of the internal date objects will be off by the same number of minutes. 
+		// Restore this, and return a date object with correct time set.
+		if (typeof this.tz === "number") {
+			return new Date(Date.UTC(this.year, this.month, this.day, this.hour, this.minute-this.tz, this.second, this.ms));
+
+		// If .tz is something else (hopefully a string), it indicates the timezone of the "local time" of the internal date object
+		// Use minitz to create a normal Date object, and return that.
+		} else {
+			return minitz(this.year, this.month+1, this.day, this.hour, this.minute, this.second, this.tz);
+		}
 	}
 };
 
@@ -713,373 +1302,34 @@ CronDate.prototype.getTime = function () {
 };
 
 /**
- * Name for each part of the cron pattern
- * @typedef {("second" | "minute" | "hour" | "day" | "month" | "dow")} CronPatternPart
+ * Helper function to check if a variable is a function
+ * @private
+ *
+ * @param {?} [v] - Variable to check
+ * @returns {boolean}
  */
-
-/**
- * Offset, 0 or -1. 
- * 
- * 0 for seconds,minutes and hours as they start on 1. 
- * -1 on days and months, as the start on 0
- * 
- * @typedef {Number} CronIndexOffset
- */
-
-/**
- * Create a CronPattern instance from pattern string ('* * * * * *')
- * @constructor
- * @param {string} pattern - Input pattern
- * @param {string} timezone - Input timezone, used for '?'-substitution
- */
-function CronPattern (pattern, timezone) {
-
-	this.pattern 		= pattern;
-	this.timezone		= timezone;
-
-	this.second			= Array(60).fill(0); // 0-59
-	this.minute			= Array(60).fill(0); // 0-59
-	this.hour			= Array(24).fill(0); // 0-23
-	this.day			= Array(31).fill(0); // 0-30 in array, 1-31 in config
-	this.month			= Array(12).fill(0); // 0-11 in array, 1-12 in config
-	this.dow			= Array(8).fill(0);  // 0-7 Where 0 = Sunday and 7=Sunday;
-
-	this.lastDayOfMonth = false;
-	this.starDOM = false;
-	this.starDOW  = false;
-
-	this.parse();
-
+function isFunction(v) {
+	return (
+		Object.prototype.toString.call(v) === "[object Function]" ||
+		"function" === typeof v ||
+		v instanceof Function
+	);
 }
 
 /**
- * Parse current pattern, will throw on any type of failure
+ * Helper function to unref a timer in both Deno and Node
  * @private
+ * @param {unknown} [timer] - Timer to unref
  */
-CronPattern.prototype.parse = function () {
-
-	// Sanity check
-	if( !(typeof this.pattern === "string" || this.pattern.constructor === String) ) {
-		throw new TypeError("CronPattern: Pattern has to be of type string.");
+function unrefTimer(timer) {
+	/* global Deno */
+	if (typeof Deno !== "undefined" && typeof Deno.unrefTimer !== "undefined") {
+		Deno.unrefTimer(timer);
+		// Node
+	} else if (timer && typeof timer.unref !== "undefined") {
+		timer.unref();
 	}
-
-	// Handle @yearly, @monthly etc
-	if (this.pattern.indexOf("@") >= 0) this.pattern = this.handleNicknames(this.pattern).trim();
-
-	// Split configuration on whitespace
-	const parts = this.pattern.replace(/\s+/g, " ").split(" ");
-
-	// Validite number of configuration entries
-	if( parts.length < 5 || parts.length > 6 ) {
-		throw new TypeError("CronPattern: invalid configuration format ('" + this.pattern + "'), exacly five or six space separated parts required.");
-	}
-
-	// If seconds is omitted, insert 0 for seconds
-	if( parts.length === 5) {
-		parts.unshift("0");
-	}
-
-	// Convert 'L' to lastDayOfMonth flag,
-	if(parts[3].indexOf("L") >= 0) {
-		parts[3] = parts[3].replace("L","");
-		this.lastDayOfMonth = true;
-	}
-
-	// Check for starDOM
-	if(parts[3] == "*") {
-		this.starDOM = true;
-	}
-
-	// Replace alpha representations
-	if (parts[4].length >= 3) parts[4] = this.replaceAlphaMonths(parts[4]);
-	if (parts[5].length >= 3) parts[5] = this.replaceAlphaDays(parts[5]);
-
-	// Check for starDOW
-	if(parts[5] == "*") {
-		this.starDOW = true;
-	}
-	
-	// Implement '?' in the simplest possible way - replace ? with current value, before further processing
-	if (this.pattern.indexOf("?") >= 0) {
-		const initDate = new CronDate(new Date(),this.timezone).getDate(true);
-		parts[0] = parts[0].replace("?", initDate.getSeconds());
-		parts[1] = parts[1].replace("?", initDate.getMinutes());
-		parts[2] = parts[2].replace("?", initDate.getHours());
-		if (!this.starDOM) parts[3] = parts[3].replace("?", initDate.getDate());
-		parts[4] = parts[4].replace("?", initDate.getMonth()+1); // getMonth is zero indexed while pattern starts from 1
-		if (!this.starDOW) parts[5] = parts[5].replace("?", initDate.getDay());
-	}
-
-	// Check part content
-	this.throwAtIllegalCharacters(parts);
-
-	// Parse parts into arrays, validates as we go
-	this.partToArray("second",    parts[0], 0);
-	this.partToArray("minute",    parts[1], 0);
-	this.partToArray("hour",      parts[2], 0);
-	this.partToArray("day",       parts[3], -1);
-	this.partToArray("month",     parts[4], -1);
-	this.partToArray("dow",       parts[5], 0);
-
-	// 0 = Sunday, 7 = Sunday
-	if( this.dow[7] ) {
-		this.dow[0] = 1;
-	}
-
-};
-
-/**
- * Convert current part (seconds/minutes etc) to an array of 1 or 0 depending on if the part is about to trigger a run or not.
- * @private
- * 
- * @param {CronPatternPart} type - Seconds/minutes etc
- * @param {string} conf - Current pattern part - *, 0-1 etc
- * @param {CronIndexOffset} valueIndexOffset
- * @param {boolean} [recursed] - Is this a recursed call 
- */
-CronPattern.prototype.partToArray = function (type, conf, valueIndexOffset) {
-
-	const arr = this[type];
-
-	// First off, handle wildcard
-	if( conf === "*" ) return arr.fill(1);
-
-	// Handle separated entries (,) by recursion
-	const split = conf.split(",");
-	if( split.length > 1 ) {
-		for( let i = 0; i < split.length; i++ ) {
-			this.partToArray(type, split[i], valueIndexOffset);
-		}
-
-	// Handle range with stepping (x-y/z)
-	} else if( conf.indexOf("-") !== -1 && conf.indexOf("/") !== -1 ) {
-		this.handleRangeWithStepping(conf, type, valueIndexOffset);
-	
-	// Handle range
-	} else if( conf.indexOf("-") !== -1 ) {
-		this.handleRange(conf, type, valueIndexOffset);
-
-	// Handle stepping
-	} else if( conf.indexOf("/") !== -1 ) {
-		this.handleStepping(conf, type, valueIndexOffset);
-
-	// Anything left should be a number
-	} else if( conf !== "" ) {
-		this.handleNumber(conf, type, valueIndexOffset);
-	}
-
-};
-
-/**
- * After converting JAN-DEC, SUN-SAT only 0-9 * , / - are allowed, throw if anything else pops up
- * @private
- * 
- * @param {string[]} parts - Each part split as strings
- */
-CronPattern.prototype.throwAtIllegalCharacters = function (parts) {
-	const reValidCron = /[^/*0-9,-]+/;
-	for(let i = 0; i < parts.length; i++) {
-		if( reValidCron.test(parts[i]) ) {
-			throw new TypeError("CronPattern: configuration entry " + i + " (" + parts[i] + ") contains illegal characters.");
-		}
-	}
-};
-
-/**
- * Nothing but a number left, handle that
- * @private
- * 
- * @param {string} conf - Current part, expected to be a number, as a string
- * @param {string} type - One of "seconds", "minutes" etc
- * @param {number} valueIndexOffset - -1 for day of month, and month, as they start at 1. 0 for seconds, hours, minutes
- */
-CronPattern.prototype.handleNumber = function (conf, type, valueIndexOffset) {
-	const i = (parseInt(conf, 10) + valueIndexOffset);
-
-	if( isNaN(i) ) {
-		throw new TypeError("CronPattern: " + type + " is not a number: '" + conf + "'");
-	}
-
-	if( i < 0 || i >= this[type].length ) {
-		throw new TypeError("CronPattern: " + type + " value out of range: '" + conf + "'");
-	}
-
-	this[type][i] = 1;
-};
-
-/**
- * Take care of ranges with stepping (e.g. 3-23/5)
- * @private
- *
- * @param {string} conf - Current part, expected to be a string like 3-23/5
- * @param {string} type - One of "seconds", "minutes" etc
- * @param {number} valueIndexOffset - -1 for day of month, and month, as they start at 1. 0 for seconds, hours, minutes
- */
-CronPattern.prototype.handleRangeWithStepping = function (conf, type, valueIndexOffset) {
-	const matches = conf.match(/^(\d+)-(\d+)\/(\d+)$/);
-
-	if( matches === null ) throw new TypeError("CronPattern: Syntax error, illegal range with stepping: '" + conf + "'");
-
-	let [, lower, upper, steps] = matches;
-	lower = parseInt(lower, 10) + valueIndexOffset;
-	upper = parseInt(upper, 10) + valueIndexOffset;
-	steps = parseInt(steps, 10);
-
-	if( isNaN(lower) ) throw new TypeError("CronPattern: Syntax error, illegal lower range (NaN)");
-	if( isNaN(upper) ) throw new TypeError("CronPattern: Syntax error, illegal upper range (NaN)");
-	if( isNaN(steps) ) throw new TypeError("CronPattern: Syntax error, illegal stepping: (NaN)");
-
-	if( steps === 0 ) throw new TypeError("CronPattern: Syntax error, illegal stepping: 0");
-	if( steps > this[type].length ) throw new TypeError("CronPattern: Syntax error, steps cannot be greater than maximum value of part ("+this[type].length+")");
-
-	if( lower < 0 || upper >= this[type].length ) throw new TypeError("CronPattern: Value out of range: '" + conf + "'");
-	if( lower > upper ) throw new TypeError("CronPattern: From value is larger than to value: '" + conf + "'");
-
-	for (let i = lower; i <= upper; i += steps) {
-		this[type][i] = 1;
-	}
-};
-
-/**
- * Take care of ranges (e.g. 1-20)
- * @private
- * 
- * @param {string} conf - Current part, expected to be a string like 1-20
- * @param {string} type - One of "seconds", "minutes" etc
- * @param {number} valueIndexOffset - -1 for day of month, and month, as they start at 1. 0 for seconds, hours, minutes
- */
-CronPattern.prototype.handleRange = function (conf, type, valueIndexOffset) {
-	const split = conf.split("-");
-
-	if( split.length !== 2 ) {
-		throw new TypeError("CronPattern: Syntax error, illegal range: '" + conf + "'");
-	}
-
-	const lower = parseInt(split[0], 10) + valueIndexOffset,
-		upper = parseInt(split[1], 10) + valueIndexOffset;
-
-	if( isNaN(lower) ) {
-		throw new TypeError("CronPattern: Syntax error, illegal lower range (NaN)");
-	} else if( isNaN(upper) ) {
-		throw new TypeError("CronPattern: Syntax error, illegal upper range (NaN)");
-	}
-
-	// Check that value is within range
-	if( lower < 0 || upper >= this[type].length ) {
-		throw new TypeError("CronPattern: Value out of range: '" + conf + "'");
-	}
-
-	//
-	if( lower > upper ) {
-		throw new TypeError("CronPattern: From value is larger than to value: '" + conf + "'");
-	}
-
-	for( let i = lower; i <= upper; i++ ) {
-		this[type][i] = 1;
-	}
-};
-
-/**
- * Handle stepping (e.g. * / 14)
- * @private
- * 
- * @param {string} conf - Current part, expected to be a string like * /20 (without the space)
- * @param {string} type - One of "seconds", "minutes" etc
- */
-CronPattern.prototype.handleStepping = function (conf, type) {
-
-	const split = conf.split("/");
-
-	if( split.length !== 2 ) {
-		throw new TypeError("CronPattern: Syntax error, illegal stepping: '" + conf + "'");
-	}
-
-	let start = 0;
-	if( split[0] !== "*" ) {
-		start = parseInt(split[0], 10);
-	}
-
-	const steps = parseInt(split[1], 10);
-
-	if( isNaN(steps) ) throw new TypeError("CronPattern: Syntax error, illegal stepping: (NaN)");
-	if( steps === 0 ) throw new TypeError("CronPattern: Syntax error, illegal stepping: 0");
-	if( steps > this[type].length ) throw new TypeError("CronPattern: Syntax error, max steps for part is ("+this[type].length+")");
-
-	for( let i = start; i < this[type].length; i+= steps ) {
-		this[type][i] = 1;
-	}
-};
-
-
-/**
- * Replace day name with day numbers
- * @private
- * 
- * @param {string} conf - Current part, expected to be a string that might contain sun,mon etc.
- * 
- * @returns {string} - conf with 0 instead of sun etc.
- */
-CronPattern.prototype.replaceAlphaDays = function (conf) {
-	return conf
-		.replace(/-sun/gi, "-7") // choose 7 if sunday is the upper value of a range because the upper value must not be smaller than the lower value
-		.replace(/sun/gi, "0")
-		.replace(/mon/gi, "1")
-		.replace(/tue/gi, "2")
-		.replace(/wed/gi, "3")
-		.replace(/thu/gi, "4")
-		.replace(/fri/gi, "5")
-		.replace(/sat/gi, "6");
-};
-
-/**
- * Replace month name with month numbers
- * @private
- * 
- * @param {string} conf - Current part, expected to be a string that might contain jan,feb etc.
- * 
- * @returns {string} - conf with 0 instead of sun etc.
- */
-CronPattern.prototype.replaceAlphaMonths = function (conf) {
-	return conf
-		.replace(/jan/gi, "1")
-		.replace(/feb/gi, "2")
-		.replace(/mar/gi, "3")
-		.replace(/apr/gi, "4")
-		.replace(/may/gi, "5")
-		.replace(/jun/gi, "6")
-		.replace(/jul/gi, "7")
-		.replace(/aug/gi, "8")
-		.replace(/sep/gi, "9")
-		.replace(/oct/gi, "10")
-		.replace(/nov/gi, "11")
-		.replace(/dec/gi, "12");
-};
-
-/**
- * Replace nicknames with actual cron patterns
- * @private
- * 
- * @param {string} pattern - Pattern, may contain nicknames, or not
- * 
- * @returns {string} - Pattern, with cron expression insted of nicknames
- */
-CronPattern.prototype.handleNicknames = function (pattern) {
-	// Replace textual representations of pattern
-	const cleanPattern = pattern.trim().toLowerCase();
-	if (cleanPattern === "@yearly" || cleanPattern === "@annually") {
-		return "0 0 1 1 *";
-	} else if (cleanPattern === "@monthly") {
-		return  "0 0 1 * *";
-	} else if (cleanPattern === "@weekly") {
-		return "0 0 * * 0";
-	} else if (cleanPattern === "@daily") {
-		return "0 0 * * *";
-	} else if (cleanPattern === "@hourly") {
-		return "0 * * * *";
-	} else {
-		return pattern;
-	}
-};
+}
 
 /* ------------------------------------------------------------------------------------
 
@@ -1091,7 +1341,7 @@ CronPattern.prototype.handleNicknames = function (pattern) {
 
   License:
 
-	Copyright (c) 2015-2022 Hexagon <github.com/Hexagon>
+	Copyright (c) 2015-2023 Hexagon <github.com/Hexagon>
 
 	Permission is hereby granted, free of charge, to any person obtaining a copy
 	of this software and associated documentation files (the "Software"), to deal
@@ -1111,21 +1361,29 @@ CronPattern.prototype.handleNicknames = function (pattern) {
 
   ------------------------------------------------------------------------------------  */
 
-/**
- * Many JS engines stores the delay as a 32-bit signed integer internally.
- * This causes an integer overflow when using delays larger than 2147483647, 
- * resulting in the timeout being executed immediately.
- * 
- * All JS engines implements an immediate execution of delays larger that a 32-bit 
- * int to keep the behaviour concistent. 
- * 
- * @constant
- * @type {number}
- */
-const maxDelay = Math.pow(2, 32 - 1) - 1;
 
 /**
- * An array containing all created cron jobs.
+   * Many JS engines stores the delay as a 32-bit signed integer internally.
+   * This causes an integer overflow when using delays larger than 2147483647,
+   * resulting in the timeout being executed immediately.
+   *
+   * All JS engines implements an immediate execution of delays larger that a 32-bit
+   * int to keep the behaviour concistent.
+   * 
+   * With this in mind, the absolute maximum value to use is
+   * 
+   * const maxDelay = Math.pow(2, 32 - 1) - 1
+   * 
+   * But due to a problem with certain javascript engines not behaving well when the
+   * computer is suspended, we'll never wait more than 30 seconds between each trigger.
+   *
+   * @constant
+   * @type {number}
+   */
+const maxDelay = 30 * 1000;
+
+/**
+ * An array containing all named cron jobs.
  *
  * @constant
  * @type {Cron[]}
@@ -1134,297 +1392,469 @@ const scheduledJobs = [];
 
 /**
  * Cron entrypoint
- * 
+ *
  * @constructor
  * @param {string|Date} pattern - Input pattern, input date, or input ISO 8601 time string
  * @param {CronOptions|Function} [fnOrOptions1] - Options or function to be run each iteration of pattern
  * @param {CronOptions|Function} [fnOrOptions2] - Options or function to be run each iteration of pattern
  * @returns {Cron}
  */
-function Cron (pattern, fnOrOptions1, fnOrOptions2) {
-	
+function Cron(pattern, fnOrOptions1, fnOrOptions2) {
 	// Optional "new" keyword
-	if( !(this instanceof Cron) ) {
+	if (!(this instanceof Cron)) {
 		return new Cron(pattern, fnOrOptions1, fnOrOptions2);
 	}
-	
+
 	// Make options and func optional and interchangable
 	let options, func;
 
-	if( typeof fnOrOptions1 === "function" ) {
+	if (isFunction(fnOrOptions1)) {
 		func = fnOrOptions1;
-	} else if( typeof fnOrOptions1 === "object" ) {
+	} else if (typeof fnOrOptions1 === "object") {
 		options = fnOrOptions1;
-	} else if( fnOrOptions1 !== void 0) {
-		throw new Error("Cron: Invalid argument passed for optionsIn. Should be one of function, or object (options).");
+	} else if (fnOrOptions1 !== void 0) {
+		throw new Error(
+			"Cron: Invalid argument passed for optionsIn. Should be one of function, or object (options).",
+		);
 	}
 
-	if( typeof fnOrOptions2 === "function" ) {
+	if (isFunction(fnOrOptions2)) {
 		func = fnOrOptions2;
-	} else if( typeof fnOrOptions2 === "object" ) {
+	} else if (typeof fnOrOptions2 === "object") {
 		options = fnOrOptions2;
-	} else if( fnOrOptions2 !== void 0) {
-		throw new Error("Cron: Invalid argument passed for funcIn. Should be one of function, or object (options).");
+	} else if (fnOrOptions2 !== void 0) {
+		throw new Error(
+			"Cron: Invalid argument passed for funcIn. Should be one of function, or object (options).",
+		);
 	}
-	
-	/** @type {string|undefined} */
+
+	/**
+	 * @public
+	 * @type {string|undefined} */
 	this.name = options ? options.name : void 0;
-	
-	/** @type {CronOptions} */
+
+	/**
+	 * @public
+	 * @type {CronOptions} */
 	this.options = CronOptions(options);
-	
-	/** @type {CronDate|undefined} */
-	this.once = void 0;
-	
-	/** @type {CronPattern|undefined} */
-	this.pattern = void 0;
-	
+
+	/**
+	 * Encapsulate all internal states in an object.
+	 * Duplicate all options that can change to internal states, for example maxRuns and paused.
+	 * @private
+	 */
+	this._states = {
+		/** @type {boolean} */
+		kill: false,
+
+		/** @type {boolean} */
+		blocking: false,
+
+		/**
+		 * Start time of previous trigger, updated after each trigger
+		 * 
+		 * Stored to use as the actual previous run, even while a new trigger
+		 * is started. Used by the public funtion `.previousRun()`
+		 * 
+		 * @type {CronDate}
+		 */
+		previousRun: void 0,
+
+		/**
+		 * Start time of current trigger, this is updated just before triggering
+		 * 
+		 * This is used internally as "previous run", as we mostly want to know
+		 * when the previous run _started_
+		 * 
+		 * @type {CronDate}
+		 */
+		currentRun: void 0,
+
+		/** @type {CronDate|undefined} */
+		once: void 0,
+
+		/** @type {unknown|undefined} */
+		currentTimeout: void 0,
+
+		/** @type {number} */
+		maxRuns: options ? options.maxRuns : void 0,
+
+		/** @type {boolean} */
+		paused: options ? options.paused : false,
+		
+		/**
+		 * @public
+		 * @type {CronPattern|undefined} */
+		pattern: void 0,
+	};
+
+
 	// Check if we got a date, or a pattern supplied as first argument
-	// Then set either this.once or this.pattern
-	if (pattern && (pattern instanceof Date || ((typeof pattern === "string") && pattern.indexOf(":") > 0))) {
-		this.once = new CronDate(pattern, this.options.timezone);
+	// Then set either this._states.once or this._states.pattern
+	if (
+		pattern &&
+		(pattern instanceof Date || ((typeof pattern === "string") && pattern.indexOf(":") > 0))
+	) {
+		this._states.once = new CronDate(pattern, this.options.timezone || this.options.utcOffset);
 	} else {
-		this.pattern = new CronPattern(pattern, this.options.timezone);
+		this._states.pattern = new CronPattern(pattern, this.options.timezone);
 	}
-	
+
+	// Only store the job in scheduledJobs if a name is specified in the options.
+	if (this.name) {
+		const existing = scheduledJobs.find((j) => j.name === this.name);
+		if (existing) {
+			throw new Error(
+				"Cron: Tried to initialize new named job '" + this.name + "', but name already taken.",
+			);
+		} else {
+			scheduledJobs.push(this);
+		}
+	}
+
 	// Allow shorthand scheduling
-	if( func !== void 0 ) {
+	if (func !== void 0) {
 		this.fn = func;
 		this.schedule();
 	}
-	
-	scheduledJobs.push(this);
+
 	return this;
-	
 }
-	
+
 /**
  * Find next runtime, based on supplied date. Strips milliseconds.
- * 
+ *
  * @param {CronDate|Date|string} [prev] - Date to start from
  * @returns {Date | null} - Next run time
  */
-Cron.prototype.next = function (prev) {
+Cron.prototype.nextRun = function (prev) {
 	const next = this._next(prev);
 	return next ? next.getDate() : null;
 };
-	
+
 /**
  * Find next n runs, based on supplied date. Strips milliseconds.
- * 
+ *
  * @param {number} n - Number of runs to enumerate
  * @param {Date|string} [previous] - Date to start from
  * @returns {Date[]} - Next n run times
  */
-Cron.prototype.enumerate = function (n, previous) {
-	if(n > this.options.maxRuns){
-		n = this.options.maxRuns;
+Cron.prototype.nextRuns = function (n, previous) {
+	if (n > this._states.maxRuns) {
+		n = this._states.maxRuns;
 	}
 	const enumeration = [];
-	let prev = previous || this.previousrun;
-	while(n-- && (prev = this.next(prev))) {
+	let prev = previous || this._states.currentRun;
+	while (n-- && (prev = this.nextRun(prev))) {
 		enumeration.push(prev);
 	}
-	
+
 	return enumeration;
 };
-	
+
 /**
- * Is running?
+ * Return the original pattern, it there was one
+ *
+ * @returns {string|undefined} - Original pattern
+ */
+Cron.prototype.getPattern = function () {
+	return this._states.pattern ? this._states.pattern.pattern : void 0;
+};
+
+/**
+ * Indicates whether or not the cron job is scheduled and running, e.g. awaiting next trigger
  * @public
- * 
+ *
  * @returns {boolean} - Running or not
  */
-Cron.prototype.running = function () {
-	const msLeft = this.msToNext(this.previousrun);
-	const running = !this.options.paused && this.fn !== void 0;
-	return msLeft !== null && running;
+Cron.prototype.isRunning = function () {
+	const nextRunTime = this.nextRun(this._states.currentRun);
+
+	const isRunning = !this._states.paused;
+	const isScheduled = this.fn !== void 0; 
+	// msLeft will be null if _states.kill is set to true, so we don't need to check this one, but we do anyway...
+	const notIsKilled = !this._states.kill;
+
+	return isRunning && isScheduled && notIsKilled && nextRunTime !== null;
 };
-	
+
 /**
- * Return previous run time
+ * Indicates whether or not the cron job is permanently stopped
  * @public
- * 
+ *
+ * @returns {boolean} - Running or not
+ */
+Cron.prototype.isStopped = function () {
+	return this._states.kill;
+};
+
+/**
+ * Indicates whether or not the cron job is currently working
+ * @public
+ *
+ * @returns {boolean} - Running or not
+ */
+Cron.prototype.isBusy = function () {
+	return this._states.blocking;
+};
+
+/**
+ * Return current/previous run start time
+ * @public
+ *
  * @returns {Date | null} - Previous run time
  */
-Cron.prototype.previous = function () {
-	return this.previousrun ? this.previousrun.getDate() : null;
+Cron.prototype.currentRun = function () {
+	return this._states.currentRun ? this._states.currentRun.getDate() : null;
 };
-	
+
+/**
+ * Return previous run start time
+ * @public
+ *
+ * @returns {Date | null} - Previous run time
+ */
+Cron.prototype.previousRun = function () {
+	return this._states.previousRun ? this._states.previousRun.getDate() : null;
+};
+
 /**
  * Returns number of milliseconds to next run
  * @public
- * 
+ *
  * @param {CronDate|Date|string} [prev] - Starting date, defaults to now - minimum interval
  * @returns {number | null}
  */
 Cron.prototype.msToNext = function (prev) {
+	
+	prev = prev || new Date();
 
 	// Get next run time
 	const next = this._next(prev);
 
-	// Default previous for millisecond calculation
-	prev = new CronDate(prev, this.options.timezone);
-
-	if( next ) {
-		return (next.getTime(true) - prev.getTime(true));
+	if (next) {
+		return (next.getTime() - prev.getTime());
 	} else {
 		return null;
 	}
 };
-	
+
 /**
- * Stop execution 
+ * Stop execution
+ *
+ * Running this will forcefully stop the job, and prevent furter exection. `.resume()` will not work after stopping.
+ * It will also be removed from the scheduledJobs array if it were named.
+ *
  * @public
  */
 Cron.prototype.stop = function () {
-	this.options.kill = true;
-	// Stop any awaiting call
-	if( this.currentTimeout ) {
-		clearTimeout( this.currentTimeout );
+
+	// If there is a job in progress, it will finish gracefully ...
+
+	// Flag as killed
+	this._states.kill = true;
+
+	// Stop any waiting timer
+	if (this._states.currentTimeout) {
+		clearTimeout(this._states.currentTimeout);
+	}
+
+	// Remove job from the scheduledJobs array to free up the name, and allow the job to be
+	// garbage collected
+	const jobIndex = scheduledJobs.indexOf(this);
+	if (jobIndex >= 0) {
+		scheduledJobs.splice(jobIndex, 1);
 	}
 };
-	
+
+
+
 /**
  * Pause execution
  * @public
- * 
+ *
  * @returns {boolean} - Wether pause was successful
  */
 Cron.prototype.pause = function () {
-	return (this.options.paused = true) && !this.options.kill;
-};
 	
+	this._states.paused = true;
+
+	return !this._states.kill;
+};
+
 /**
  * Resume execution
  * @public
- * 
+ *
  * @returns {boolean} - Wether resume was successful
  */
 Cron.prototype.resume = function () {
-	return !(this.options.paused = false) && !this.options.kill;
+
+	this._states.paused = false;
+
+	return !this._states.kill;
 };
-	
+
 /**
  * Schedule a new job
  * @public
- * 
+ *
  * @param {Function} func - Function to be run each iteration of pattern
- * @param {Date} [partial] - Internal function indicating a partial run
  * @returns {Cron}
  */
-Cron.prototype.schedule = function (func, partial) {
-	
+Cron.prototype.schedule = function (func) {
 	// If a function is already scheduled, bail out
 	if (func && this.fn) {
-		throw new Error("Cron: It is not allowed to schedule two functions using the same Croner instance.");
-		
+		throw new Error(
+			"Cron: It is not allowed to schedule two functions using the same Croner instance.",
+		);
+
 		// Update function if passed
 	} else if (func) {
 		this.fn = func;
 	}
-	
-	// Get ms to next run, bail out early if waitMs is null (no next run)
-	let	waitMs = this.msToNext(partial ? partial : this.previousrun);
-	const target = this.next(partial ? partial :  this.previousrun);
 
-	if  ( waitMs === null )  return this;
-	
+	// Get actual ms to next run, bail out early if any of them is null (no next run)						
+	let waitMs = this.msToNext();
+
+	// Get the target date based on previous run
+	const target = this.nextRun(this._states.currentRun);
+
+	if (waitMs === null || target === null) return this;
+
 	// setTimeout cant handle more than Math.pow(2, 32 - 1) - 1 ms
-	if( waitMs > maxDelay ) {
+	if (waitMs > maxDelay) {
 		waitMs = maxDelay;
 	}
-	
-	// Ok, go!
-	this.currentTimeout = setTimeout(() => {
-	
-		const now = new Date();
 
-		if( waitMs !== maxDelay && !this.options.paused && now.getTime() >= target ) {
-	
-			this.options.maxRuns--;
-	
-			// Always catch errors
-			//  - re-throw if options.catch is not set
-			//	- call callback if options.catch is set to a function
-			//  - ignore if options.catch is set to any other truthy value
-			if (this.options.catch) {
-				// We don't wan't croner to stop even if a job is running over next
-				// - so we wrap the function in a non-awaited anonymous function clause
-				(async (inst) => {
-					try {
-						await inst.fn(inst, inst.options.context);
-					} catch (_e) {
-						if (
-							Object.prototype.toString.call(inst.options.catch) === "[object Function]"
-							|| "function" === typeof inst.options.catch
-							|| inst.options.catch instanceof Function
-						) {
-							inst.options.catch(_e);
-						}
-					}
-				})(this);
-			} else {
-				this.fn(this, this.options.context);
-			}
-	
-			// Set previous run to now
-			this.previousrun = new CronDate(void 0, this.options.timezone);
-	
-			// Recurse
-			this.schedule();
-			
-		} else {
-			// Partial
-			this.schedule(undefined, now);
-		}
-	
-	
-	}, waitMs);
-		
+	// Start the timer loop
+	// _checkTrigger will either call _trigger (if it's time, croner isn't paused and whatever), 
+	// or recurse back to this function to wait for next trigger
+	this._states.currentTimeout = setTimeout(() => this._checkTrigger(target), waitMs);
+
+	// If unref option is set - unref the current timeout, which allows the process to exit even if there is a pending schedule
+	if (this._states.currentTimeout && this.options.unref) {
+		unrefTimer(this._states.currentTimeout);
+	}
+
 	return this;
-	
 };
 
-	
+/**
+ * Internal function to trigger a run, used by both scheduled and manual trigger
+ * @private
+ *
+ * @param {Date} [initiationDate]
+ */
+Cron.prototype._trigger = async function (initiationDate) {
+
+	this._states.blocking = true;
+
+	this._states.currentRun = new CronDate(
+		void 0, // We should use initiationDate, but that does not play well with fake timers in third party tests. In real world there is not much difference though */
+		this.options.timezone || this.options.utcOffset,
+	);
+
+	if (this.options.catch) {
+		try {
+			await this.fn(this, this.options.context);
+		} catch (_e) {
+			if (isFunction(this.options.catch)) {
+				this.options.catch(_e, this);
+			}
+		}
+	} else {
+		// Trigger the function without catching
+		await this.fn(this, this.options.context);
+
+	}
+
+	this._states.previousRun = new CronDate(
+		initiationDate,
+		this.options.timezone || this.options.utcOffset,
+	);
+
+	this._states.blocking = false;
+
+};
+
+/**
+ * Trigger a run manually
+ * @public
+ */
+Cron.prototype.trigger = async function () {
+	await this._trigger();
+};
+
+/**
+ * Called when it's time to trigger.
+ * Checks if all conditions are currently met,
+ * then instantly triggers the scheduled function.
+ * @private
+ *
+ * @param {Date} target - Target Date
+ */
+Cron.prototype._checkTrigger = function (target) {
+	const now = new Date(),
+		shouldRun = !this._states.paused && now.getTime() >= target,
+		isBlocked = this._states.blocking && this.options.protect;
+
+	if (shouldRun && !isBlocked) {
+		this._states.maxRuns--;
+
+		// We do not await this
+		this._trigger();
+
+	} else {
+		// If this trigger were blocked, and protect is a function, trigger protect (without awaiting it, even if it's an synchronous function)
+		if (shouldRun && isBlocked && isFunction(this.options.protect)) {
+			setTimeout(() => this.options.protect(this), 0);
+		}
+	}
+
+	// Always reschedule
+	this.schedule();
+};
+
 /**
  * Internal version of next. Cron needs millseconds internally, hence _next.
  * @private
- * 
- * @param {CronDate|Date|string} prev - PreviousRun
+ *
+ * @param {CronDate|Date|string} prev - previousRun
  * @returns {CronDate | null} - Next run time
  */
 Cron.prototype._next = function (prev) {
-
-	const hasPreviousRun = (prev || this.previousrun) ? true : false;
+	const hasPreviousRun = (prev || this._states.currentRun) ? true : false;
 
 	// Ensure previous run is a CronDate
-	prev = new CronDate(prev, this.options.timezone);
+	prev = new CronDate(prev, this.options.timezone || this.options.utcOffset);
 
 	// Previous run should never be before startAt
-	if( this.options.startAt && prev && prev.getTime() < this.options.startAt.getTime() ) {
+	if (this.options.startAt && prev && prev.getTime() < this.options.startAt.getTime()) {
 		prev = this.options.startAt;
 	}
 
 	// Calculate next run according to pattern or one-off timestamp, pass actual previous run to increment
-	const 
-		nextRun = this.once || new CronDate(prev, this.options.timezone).increment(this.pattern, this.options, hasPreviousRun);
-	
-	if (this.once && this.once.getTime() <= prev.getTime()) {
-		return null;
-  
-	} else if ((nextRun === null) ||
-		(this.options.maxRuns <= 0) ||	
-		(this.options.kill) ||
-		(this.options.stopAt && nextRun.getTime() >= this.options.stopAt.getTime() )) {
-		return null;
+	const nextRun = this._states.once ||
+		new CronDate(prev, this.options.timezone || this.options.utcOffset).increment(
+			this._states.pattern,
+			this.options,
+			hasPreviousRun, // hasPreviousRun is used to allow 
+		);
 
+	if (this._states.once && this._states.once.getTime() <= prev.getTime()) {
+		return null;
+	} else if (
+		(nextRun === null) ||
+		(this._states.maxRuns <= 0) ||
+		(this._states.kill) ||
+		(this.options.stopAt && nextRun.getTime() >= this.options.stopAt.getTime())
+	) {
+		return null;
 	} else {
 		// All seem good, return next run
 		return nextRun;
-
 	}
-		
 };
 
 Cron.Cron = Cron;
