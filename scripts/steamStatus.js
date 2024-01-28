@@ -190,9 +190,12 @@ registerPlugin(
 		event.on("load", () => {
 			// Libraries
 
-			const logger = require("log");
-			if(!logger) throw new Error("Log library not found!");
-			const log = logger(engine, parseInt(config.logLevel));
+			const createLogger = require("log");
+			if(!createLogger) throw new Error("Log library not found!");
+			const log = createLogger({
+				engine,
+				logLevel: config.logLevel,
+			});
 
 			const zod = require("zod");
 			if(!zod) throw new Error("Zod library not found!");

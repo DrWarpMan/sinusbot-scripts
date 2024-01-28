@@ -1,7 +1,7 @@
 registerPlugin(
 	{
 		name: "Log",
-		version: "1.0.0",
+		version: "2.0.0",
 		description: "Simple logging library",
 		author: "DrWarpMan <drwarpman@gmail.com>",
 		backends: ["ts3", "discord"],
@@ -16,37 +16,65 @@ registerPlugin(
 	(_, __, { name, version, author }) => {
 		const engine = require("engine");
 
+		/**
+		 * @typedef {keyof typeof LOG_LEVEL} LogLevel
+		 */
+
 		const LOG_LEVEL = /** @type {const} */ ({
-			"ERROR": 0,
-			"WARN": 1,
-			"INFO": 2
+			ERROR: 0,
+			WARN: 1,
+			INFO: 2,
 		});
 
 		/**
-		 * Creates & returns a new instance of logger
-		 * @param {typeof engine} engine the engine instance of the script that uses this library
-		 * @param {keyof typeof LOG_LEVEL | number} configLogLevel script's log level, usually set by the user of the script
-		 * @returns {(logLevel: keyof typeof LOG_LEVEL, message: string) => void} function that creates a log with specified log level
+		 * @param {number} logLevel
+		 * @returns {LogLevel}
 		 */
+		const getLogLevelFromInteger = (logLevel) => {
+			switch (logLevel) {
+				case LOG_LEVEL.ERROR:
+					return "ERROR";
+				case LOG_LEVEL.WARN:
+					return "WARN";
+				case LOG_LEVEL.INFO:
+					return "INFO";
+				default:
+					throw new Error("Invalid log level!");
+			}
+		};
 
-		const logger = (engine, configLogLevel) => {			
-			if(typeof configLogLevel === "number")
-			{
-				const [logLevel] = /** @type {[keyof typeof LOG_LEVEL, number][]} */
-					(Object.entries(LOG_LEVEL)).find(([_, num]) => num === configLogLevel);
+		/**
+		 * @param {{
+		 * 	engine: typeof import("engine"),
+		 * 	logLevel: LogLevel | number | `${number}`
+		 * }} params
+		 * @returns {(logLevel: LogLevel, message: string) => void}
+		 */
+		const createLogger = (params) => {
+			/** @type {LogLevel} */
+			let loggerLogLevel;
 
-				if(logLevel) configLogLevel = logLevel;
-				else throw new Error("Invalid log level provided.");
+			if (
+				typeof params.logLevel === "string" &&
+				/^[0-9]+$/.test(params.logLevel)
+			) {
+				loggerLogLevel = getLogLevelFromInteger(Number(params.logLevel));
+			} else if (typeof params.logLevel === "number") {
+				loggerLogLevel = getLogLevelFromInteger(params.logLevel);
+			} else if (params.logLevel in LOG_LEVEL) {
+				loggerLogLevel = /** @type {LogLevel} */ (params.logLevel);
+			} else {
+				throw new Error("Invalid log level!");
 			}
 
 			return (logLevel, message) => {
-				if(LOG_LEVEL[logLevel] > LOG_LEVEL[configLogLevel]) return;
+				if (LOG_LEVEL[logLevel] > LOG_LEVEL[loggerLogLevel]) return;
 				engine.log(`${logLevel}: ${message}`);
 			};
 		};
 
-		module.exports = logger;
+		module.exports = createLogger;
 
 		engine.log(`Loaded: ${name} | v${version} | ${author}`);
-	}
+	},
 );
